@@ -1,5 +1,3 @@
-// __tests__/sum.test.ts
-
 function sum(a: number, b: number) {
   return a + b
 }

@@ -1,5 +1,3 @@
-// __tests__/greet.test.ts
-
 function greet(name: string) {
   return `Hello, ${name}!`
 }
