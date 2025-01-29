@@ -20,6 +20,7 @@ This is a project by Takeoff for building a level 2 coding agent.
 ## Project Structure
 
 - `app` - Next.js app router
+  - `api` - API routes
   - `route` - An example route
     - `_components` - One-off components for the route
     - `layout.tsx` - Layout for the route
