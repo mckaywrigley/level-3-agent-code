@@ -14,22 +14,19 @@ export default async function githubWebhook(
   const eventType = req.headers["x-github-event"]
   const payload = req.body
 
-  // If this is a newly opened (or "ready_for_review") PR, run both agents
-  if (
-    eventType === "pull_request" &&
-    (payload.action === "opened" || payload.action === "ready_for_review")
-  ) {
-    // 1) Gather context
+  if (eventType === "pull_request") {
     const context = await handlePullRequest(payload)
 
-    // 2) Fire off the "Level 1" code review agent
-    await handleReviewAgent(context)
+    if (payload.action === "opened" || payload.action === "ready_for_review") {
+      await handleReviewAgent(context)
+    }
 
-    // 3) Fire off the "Level 2" test generation agent
-    await handleTestGeneration(context)
-
-    // If you want them to run conditionally, you could add logic here,
-    // e.g. run only if certain files changed, etc.
+    if (
+      payload.action === "labeled" &&
+      payload.label.name === "ready-for-tests"
+    ) {
+      await handleTestGeneration(context)
+    }
   }
 
   return res.status(200).json({ message: "OK" })
