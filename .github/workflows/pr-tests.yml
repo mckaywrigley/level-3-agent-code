@@ -1,0 +1,62 @@
+name: Run Tests on Pull Request
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v3
+
+      - name: Use Node.js 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        # This is the command that actually runs your tests.
+        run: npm run test -- --ci --json --outputFile=jest-results.json
+
+      - name: Post results as a comment
+        # This step reads the results and posts a comment to the PR
+        if: always()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+
+            // 1) Read the test results file that was produced.
+            const jsonString = fs.readFileSync('jest-results.json', 'utf8');
+            const data = JSON.parse(jsonString);
+
+            // 2) Build a quick summary:
+            const totalTests = data.numTotalTests;
+            const totalPassed = data.numPassedTests;
+            const totalFailed = data.numFailedTests;
+
+            let summary = `**Test Summary**\n\n`;
+            summary += `- Total tests: ${totalTests}\n`;
+            summary += `- Passed: ${totalPassed}\n`;
+            summary += `- Failed: ${totalFailed}\n\n`;
+
+            // If everything passed, great! If not, mention it.
+            if (totalFailed === 0) {
+              summary += "✅ All tests passed!";
+            } else {
+              summary += "❌ Some tests failed. Please check logs above.";
+            }
+
+            // 3) Create a PR comment
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: summary
+            });
