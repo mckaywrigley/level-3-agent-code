@@ -1,9 +1,5 @@
 import { getFileContent, octokit } from "./github"
 
-/**
- * Basic shape for the pull request context that we feed
- * into each of our AI "agent" functions (review, test gen, etc.)
- */
 export interface PullRequestContext {
   owner: string
   repo: string
@@ -22,12 +18,20 @@ export interface PullRequestContext {
   commitMessages: string[]
 }
 
+export interface PullRequestContextWithTests extends PullRequestContext {
+  existingTestFiles: {
+    filename: string
+    content: string
+  }[]
+}
+
 /**
- * handlePullRequest:
- * Gathers all relevant data from the PR, such as changed files, commit messages,
- * and returns that info in a structured object (PullRequestContext).
+ * The basic function that collects minimal PR data:
+ * - Owner, repo, PR number, branch info
+ * - changedFiles with patch + content
+ * - commitMessages
  */
-export async function handlePullRequest(
+export async function handlePullRequestBase(
   payload: any
 ): Promise<PullRequestContext> {
   const owner = payload.repository.owner.login
@@ -78,5 +82,76 @@ export async function handlePullRequest(
     title,
     changedFiles,
     commitMessages
+  }
+}
+
+/**
+ * Recursively fetches all files under __tests__/ to build an array of test files with content.
+ */
+async function getAllTestFiles(
+  owner: string,
+  repo: string,
+  ref: string,
+  dirPath = "__tests__"
+): Promise<{ filename: string; content: string }[]> {
+  const results: { filename: string; content: string }[] = []
+
+  try {
+    const { data } = await octokit.repos.getContent({
+      owner,
+      repo,
+      path: dirPath,
+      ref
+    })
+
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (item.type === "file") {
+          const fileContent = await getFileContent(owner, repo, item.path, ref)
+          if (fileContent) {
+            results.push({
+              filename: item.path,
+              content: fileContent
+            })
+          }
+        } else if (item.type === "dir") {
+          // Recurse into subdir
+          const subDirFiles = await getAllTestFiles(owner, repo, ref, item.path)
+          results.push(...subDirFiles)
+        }
+      }
+    }
+  } catch (err: any) {
+    if (err.status === 404) {
+      // If the directory doesn't exist, skip
+      console.log(`No ${dirPath} folder found, skipping.`)
+    } else {
+      console.error("Error in getAllTestFiles:", err)
+    }
+  }
+
+  return results
+}
+
+/**
+ * Extends the base pull request context with existing test file info.
+ * Use this ONLY for test generation, not for code review.
+ */
+export async function handlePullRequestForTestAgent(
+  payload: any
+): Promise<PullRequestContextWithTests> {
+  // Start with the base context
+  const baseContext = await handlePullRequestBase(payload)
+
+  // Gather existing test files
+  const existingTestFiles = await getAllTestFiles(
+    baseContext.owner,
+    baseContext.repo,
+    baseContext.headRef
+  )
+
+  return {
+    ...baseContext,
+    existingTestFiles
   }
 }

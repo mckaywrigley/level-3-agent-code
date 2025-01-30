@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { handlePullRequest } from "./_lib/handlers"
+import {
+  handlePullRequestBase,
+  handlePullRequestForTestAgent
+} from "./_lib/handlers"
 import { handleReviewAgent } from "./_lib/review-agent"
 import { handleTestGeneration } from "./_lib/test-agent"
 import { verifyGitHubSignature } from "./_lib/verify-signature"
@@ -30,27 +33,29 @@ export async function POST(request: NextRequest) {
 
     // We only care about "pull_request" events in this example
     if (eventType === "pull_request") {
-      // Gather PR context
-      const context = await handlePullRequest(payload)
-
-      // Automatic triggers
+      // Review agent - uses base context without tests
       if (payload.action === "opened") {
+        const context = await handlePullRequestBase(payload)
         await handleReviewAgent(context)
       }
 
+      // Test agent - needs context with existing tests
       if (payload.action === "ready_for_review") {
+        const context = await handlePullRequestForTestAgent(payload)
         await handleTestGeneration(context)
       }
 
-      // Manual label-based triggers
+      // Manual label triggers
       if (payload.action === "labeled") {
         const labelName = payload.label?.name
 
         if (labelName === "agent-ready-for-tests") {
+          const context = await handlePullRequestForTestAgent(payload)
           await handleTestGeneration(context)
         }
 
         if (labelName === "agent-review") {
+          const context = await handlePullRequestBase(payload)
           await handleReviewAgent(context)
         }
       }
