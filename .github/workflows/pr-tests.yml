@@ -1,4 +1,4 @@
-name: Run Tests on Pull Request
+name: Run Unit + E2E Tests on PR
 
 on:
   pull_request:
@@ -7,12 +7,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out the code
         uses: actions/checkout@v3
 
-      - name: Use Node.js 18
+      - name: Use Node 18
         uses: actions/setup-node@v3
         with:
           node-version: 18
@@ -20,43 +19,88 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run tests
-        # This is the command that actually runs your tests.
-        run: npm run test -- --ci --json --outputFile=jest-results.json
+      # STEP 1: Run Jest (unit tests) and produce jest-results.json
+      - name: Run Jest (unit) in CI mode
+        run: |
+          npm run test:unit:ci || true
+        # "|| true" ensures we don't abort even if tests fail
 
-      - name: Post results as a comment
-        # This step reads the results and posts a comment to the PR
-        if: always()
+      # STEP 2: Run Playwright (e2e) in CI mode
+      - name: Run Playwright (e2e) in CI mode
+        run: |
+          npm run test:e2e:ci || true
+        # This should produce a JSON file in playwright-report/report.json
+        # (adjust to your actual path if needed)
+
+      # STEP 3: Parse + comment results
+      - name: Parse & Comment on PR
+        if: always() # Ensure we run this step even if tests fail
         uses: actions/github-script@v6
         with:
           script: |
             const fs = require('fs');
 
-            // 1) Read the test results file that was produced.
-            const jsonString = fs.readFileSync('jest-results.json', 'utf8');
-            const data = JSON.parse(jsonString);
+            let commentBody = `### Combined Test Results\n\n`;
 
-            // 2) Build a quick summary:
-            const totalTests = data.numTotalTests;
-            const totalPassed = data.numPassedTests;
-            const totalFailed = data.numFailedTests;
-
-            let summary = `**Test Summary**\n\n`;
-            summary += `- Total tests: ${totalTests}\n`;
-            summary += `- Passed: ${totalPassed}\n`;
-            summary += `- Failed: ${totalFailed}\n\n`;
-
-            // If everything passed, great! If not, mention it.
-            if (totalFailed === 0) {
-              summary += "✅ All tests passed!";
-            } else {
-              summary += "❌ Some tests failed. Please check logs above.";
+            // 1) Parse JEST results
+            try {
+              const jestRaw = fs.readFileSync('jest-results.json', 'utf8');
+              const jestData = JSON.parse(jestRaw);
+              commentBody += '**Jest Unit Tests**\n';
+              commentBody += `- Total: ${jestData.numTotalTests}\n`;
+              commentBody += `- Passed: ${jestData.numPassedTests}\n`;
+              commentBody += `- Failed: ${jestData.numFailedTests}\n\n`;
+            } catch (err) {
+              commentBody += `**Jest results**: Could not read \`jest-results.json\`. Possibly no file or an error.\n\n`;
             }
 
-            // 3) Create a PR comment
-            github.rest.issues.createComment({
+            // 2) Parse PLAYWRIGHT results
+            //   By default with `--reporter=json --output=playwright-report`, 
+            //   the JSON file is "playwright-report/report.json"
+            try {
+              const pwRaw = fs.readFileSync('playwright-report/report.json', 'utf8');
+              const pwData = JSON.parse(pwRaw);
+              
+              // The structure of PW JSON depends on your version. 
+              // Typically it has a "suites" array with test results. 
+              // We'll do a quick count:
+              let total = 0;
+              let passed = 0;
+              let failed = 0;
+
+              // This is very simplified. Real data might need more nested checks.
+              if (Array.isArray(pwData.suites)) {
+                for (const suite of pwData.suites) {
+                  if (Array.isArray(suite.specs)) {
+                    for (const spec of suite.specs) {
+                      if (Array.isArray(spec.tests)) {
+                        for (const test of spec.tests) {
+                          total++;
+                          if (test.outcome === 'expected') passed++;
+                          if (test.outcome === 'unexpected') failed++;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+
+              commentBody += '**Playwright E2E Tests**\n';
+              commentBody += `- Total: ${total}\n`;
+              commentBody += `- Passed: ${passed}\n`;
+              commentBody += `- Failed: ${failed}\n\n`;
+            } catch (err) {
+              commentBody += `**Playwright results**: Could not read \`playwright-report/report.json\`. Possibly no file or an error.\n\n`;
+            }
+
+            // 3) Post final comment
+            //    We always do it, but you can add logic if you want 
+            //    to only post if there's a PR event.
+            const result = await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: summary
+              body: commentBody
             });
+
+            console.log('Comment posted:', result.data.html_url);

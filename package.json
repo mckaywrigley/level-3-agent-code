@@ -17,7 +17,9 @@
     "prepare": "husky install",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "jest",
+    "test:unit:ci": "jest --ci --json --outputFile=jest-results.json",
     "test:e2e": "playwright test",
+    "test:e2e:ci": "playwright test --reporter=json --output=playwright-report",
     "proxy:github": "tsx scripts/webhook-proxies/github.ts"
   },
   "dependencies": {
