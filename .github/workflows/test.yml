@@ -37,6 +37,12 @@ jobs:
       # 4) Build your Next.js app
       - name: Build Next.js
         run: npm run build
+        env:
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+          GH_INSTALLATION_ID: ${{ secrets.GH_INSTALLATION_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          WEBHOOK_PROXY_URL: ${{ secrets.WEBHOOK_PROXY_URL }}
 
       # 5) Start Next.js in the background
       - name: Start Next.js
