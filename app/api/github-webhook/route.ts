@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     const rawBody = await request.text()
 
     // 2) If we have a secret, verify the signature
-    const secret = process.env.GITHUB_WEBHOOK_SECRET
+    const secret = process.env.GH_WEBHOOK_SECRET
     if (secret) {
       const signature = request.headers.get("x-hub-signature-256") || ""
       const valid = verifyGitHubSignature(rawBody, secret, signature)
