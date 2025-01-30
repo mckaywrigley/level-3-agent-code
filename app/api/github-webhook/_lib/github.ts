@@ -2,9 +2,6 @@ import { createAppAuth } from "@octokit/auth-app"
 import { Octokit } from "@octokit/rest"
 import { Buffer } from "buffer"
 
-/****************************
- * 1) ENV / CREDENTIAL CHECKS
- ****************************/
 const { GITHUB_APP_ID, GITHUB_PRIVATE_KEY, GITHUB_INSTALLATION_ID } =
   process.env
 
@@ -14,9 +11,6 @@ if (!GITHUB_APP_ID || !GITHUB_PRIVATE_KEY || !GITHUB_INSTALLATION_ID) {
   )
 }
 
-/****************************
- * 2) OCTOKIT / OPENAI CLIENT
- ****************************/
 export const octokit = new Octokit({
   authStrategy: createAppAuth,
   auth: {
@@ -26,23 +20,9 @@ export const octokit = new Octokit({
   }
 })
 
-/*******************************
- * 3) DATA STRUCTURES / HELPERS
- *******************************/
-export interface FileChange {
-  filename: string
-  patch: string
-  status: string
-  additions: number
-  deletions: number
-  content?: string // base64-decoded
-}
-
-export interface GeneratedTestProposal {
-  filename: string
-  testContent: string
-}
-
+/**
+ * Retrieve file content from a GitHub repo at a specific ref. Returns decoded string or undefined if not found.
+ */
 export async function getFileContent(
   owner: string,
   repo: string,
@@ -64,52 +44,5 @@ export async function getFileContent(
       return undefined
     }
     throw err
-  }
-}
-
-/*****************************************************
- * 5) CREATING OR UPDATING TEST FILES VIA OCTOKIT
- * This version simply commits new test files on a new branch
- * and then creates a Pull Request from that branch.
- *****************************************************/
-export async function createCommitWithTests(
-  owner: string,
-  repo: string,
-  baseBranch: string,
-  newBranchName: string,
-  proposals: GeneratedTestProposal[]
-) {
-  // 1) Get the latest commit SHA of baseBranch
-  const { data: refData } = await octokit.git.getRef({
-    owner,
-    repo,
-    ref: `heads/${baseBranch}`
-  })
-
-  const latestCommitSha = refData.object.sha
-
-  // 2) Create new branch from that commit
-  await octokit.git.createRef({
-    owner,
-    repo,
-    ref: `refs/heads/${newBranchName}`,
-    sha: latestCommitSha
-  })
-
-  // 3) For each test file, create or update it
-  for (const proposal of proposals) {
-    const path = proposal.filename
-    const contentBase64 = Buffer.from(proposal.testContent, "utf8").toString(
-      "base64"
-    )
-
-    await octokit.repos.createOrUpdateFileContents({
-      owner,
-      repo,
-      path,
-      message: `Add test: ${path}`,
-      content: contentBase64,
-      branch: newBranchName
-    })
   }
 }
