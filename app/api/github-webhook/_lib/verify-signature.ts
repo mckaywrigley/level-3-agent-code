@@ -2,8 +2,7 @@ import crypto from "crypto"
 
 /**
  * verifyGitHubSignature:
- *   - The GitHub 'x-hub-signature-256' is "sha256=..."
- *   - We compute an HMAC with your secret, compare to that signature.
+ * Checks the X-Hub-Signature-256 header from GitHub to ensure the payload is valid.
  */
 export function verifyGitHubSignature(
   rawBody: string,

@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 3) Parse the JSON from rawBody now that signature is verified
+    // 3) Parse the JSON from rawBody
     const payload = JSON.parse(rawBody)
 
     // 4) Check the event type from headers
@@ -30,29 +30,28 @@ export async function POST(request: NextRequest) {
 
     // We only care about "pull_request" events in this example
     if (eventType === "pull_request") {
-      // Gather PR context (owner, repo, changed files, etc.)
+      // Gather PR context
       const context = await handlePullRequest(payload)
 
-      // --------------------------------------------
-      // Keep your existing code review logic
-      // --------------------------------------------
+      // Automatic triggers
       if (payload.action === "opened") {
-        // If the PR is newly opened, run a code review
         await handleReviewAgent(context)
       }
 
       if (payload.action === "ready_for_review") {
-        // If a draft PR is converted to ready, generate tests
         await handleTestGeneration(context)
       }
 
-      // --------------------------------------------
-      // NEW: Trigger test generation if user adds "agent-ready-for-tests" label
-      // --------------------------------------------
+      // Manual label-based triggers
       if (payload.action === "labeled") {
-        // Double-check that this is the label we want to trigger on
-        if (payload.label?.name === "agent-ready-for-tests") {
+        const labelName = payload.label?.name
+
+        if (labelName === "agent-ready-for-tests") {
           await handleTestGeneration(context)
+        }
+
+        if (labelName === "agent-review") {
+          await handleReviewAgent(context)
         }
       }
     }

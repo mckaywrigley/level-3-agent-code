@@ -10,6 +10,7 @@ export interface PullRequestContext {
   pullNumber: number
   headRef: string
   baseRef: string
+  title: string
   changedFiles: {
     filename: string
     patch: string
@@ -18,12 +19,12 @@ export interface PullRequestContext {
     deletions: number
     content?: string
   }[]
-  commitMessages: string[] // <--- We also collect commit messages for the code review agent
+  commitMessages: string[]
 }
 
 /**
  * handlePullRequest:
- * Gathers all relevant data from the PR, such as changed files and commit messages,
+ * Gathers all relevant data from the PR, such as changed files, commit messages,
  * and returns that info in a structured object (PullRequestContext).
  */
 export async function handlePullRequest(
@@ -34,6 +35,7 @@ export async function handlePullRequest(
   const pullNumber = payload.pull_request.number
   const headRef = payload.pull_request.head.ref
   const baseRef = payload.pull_request.base.ref
+  const title = payload.pull_request.title
 
   // 1) List changed files
   const filesRes = await octokit.pulls.listFiles({
@@ -59,7 +61,7 @@ export async function handlePullRequest(
     })
   )
 
-  // 2) Also collect commit messages
+  // 2) Collect commit messages
   const commitsRes = await octokit.pulls.listCommits({
     owner,
     repo,
@@ -73,6 +75,7 @@ export async function handlePullRequest(
     pullNumber,
     headRef,
     baseRef,
+    title,
     changedFiles,
     commitMessages
   }
