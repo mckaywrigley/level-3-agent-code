@@ -34,10 +34,11 @@ jobs:
       - name: Install
         run: npm install
 
+      # 4) Install Playwright Browsers
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
 
-      # 4) Build your Next.js app
+      # 5) Build your Next.js app (with env vars if needed)
       - name: Build Next.js
         run: npm run build
         env:
@@ -47,26 +48,27 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           WEBHOOK_PROXY_URL: ${{ secrets.WEBHOOK_PROXY_URL }}
 
-      # 5) Start Next.js in the background
+      # 6) Start Next.js in the background
       - name: Start Next.js
         run: |
           npm start &
           npx wait-on http://localhost:3000
 
-      # 6) Run Jest unit tests
+      # 7) Run Jest unit tests
       - name: Run Jest (Unit Tests)
         run: |
           npm run test:unit:ci || true
         # ^ '|| true' ensures we keep going even if tests fail,
         # so we can parse the results JSON in the next step.
 
-      # 7) Run Playwright e2e tests
+      # 8) Run Playwright e2e tests
       - name: Run Playwright (E2E Tests)
         run: |
           npm run test:e2e:ci || true
-        # This writes the JSON to 'playwright-report/report.json'.
+        # This writes the JSON to 'playwright-report/report.json' (assuming
+        # your config or CLI is set to produce it at that path).
 
-      # 8) Combine & Post Results to PR (only if this is a pull_request event)
+      # 9) Combine & Post Results to PR (only if this is a pull_request event)
       - name: Combine & Comment Detailed Test Results
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/github-script@v6
@@ -74,9 +76,8 @@ jobs:
           script: |
             const fs = require("fs");
 
-            // We’ll store the final output in a big string
-            let commentBody = "### Full Test Results\n\n";
-            commentBody += "Below are details on any failing tests. Use them to debug manually or feed back to the AI agent.\n\n";
+            let commentBody = "### Full Test Results\\n\\n";
+            commentBody += "Below are details on any failing tests. Use them to debug or feed back to the AI agent.\\n\\n";
 
             // --- Parse Jest ---
             try {
@@ -87,27 +88,24 @@ jobs:
               const passed = jestData.numPassedTests;
               const failed = jestData.numFailedTests;
 
-              commentBody += `**Jest**  
-      - Total: ${totalTests}  
-      - Passed: ${passed}  
-      - Failed: ${failed}\n\n`;
+              // Indent the dashes so they don't break YAML
+              commentBody += `**Jest**\\n  - Total: ${totalTests}\\n  - Passed: ${passed}\\n  - Failed: ${failed}\\n\\n`;
 
-              // If there's failing tests, gather them
               if (failed > 0 && Array.isArray(jestData.testResults)) {
-                commentBody += "**Jest Failures**\n";
+                commentBody += "**Jest Failures**\\n";
                 for (const fileResult of jestData.testResults) {
                   for (const testResult of fileResult.testResults) {
                     if (testResult.status === "failed") {
-                      const failMsg = testResult.failureMessages.join("\n");
-                      commentBody += `- **File**: \`${fileResult.name}\`\n` +
-                                    `  **Test**: \`${testResult.title}\`\n` +
-                                    `  **Error**:\n\`\`\`\n${failMsg}\n\`\`\`\n\n`;
+                      const failMsg = testResult.failureMessages.join("\\n");
+                      commentBody += `- **File**: \`${fileResult.name}\`\\n`;
+                      commentBody += `  **Test**: \`${testResult.title}\`\\n`;
+                      commentBody += `  **Error**:\\n\`\`\`\\n${failMsg}\\n\`\`\`\\n\\n`;
                     }
                   }
                 }
               }
             } catch (err) {
-              commentBody += "**Jest**: Could not read `jest-results.json` or parse it.\n\n";
+              commentBody += "**Jest**: Could not read \`jest-results.json\` or parse it.\\n\\n";
             }
 
             // --- Parse Playwright ---
@@ -119,48 +117,41 @@ jobs:
               const totalPassed = stats.expected || 0;
               const totalFailed = stats.unexpected || 0;
 
-              commentBody += `**Playwright**  
-      - Passed: ${totalPassed}  
-      - Failed: ${totalFailed}\n\n`;
+              commentBody += `**Playwright**\\n  - Passed: ${totalPassed}\\n  - Failed: ${totalFailed}\\n\\n`;
 
-              // If there's failing tests, gather them
               if (totalFailed > 0 && Array.isArray(pwData.suites)) {
-                commentBody += "**Playwright Failures**\n";
+                commentBody += "**Playwright Failures**\\n";
 
                 function recurseSuites(suites) {
                   for (const suite of suites) {
                     if (suite.specs) {
                       for (const spec of suite.specs) {
-                        // Each spec might have multiple tests
                         for (const test of spec.tests) {
                           if (test.status === "unexpected") {
-                            // This test is failing
                             const testName = spec.title;
                             const fileName = spec.file;
                             const project = test.projectName;
 
-                            // Each test has one or more results
                             for (const result of test.results) {
                               if (result.status !== "passed") {
                                 let combinedErrors = "";
                                 for (const errObj of (result.errors || [])) {
-                                  combinedErrors += `\nMessage: ${errObj.message}\nStack: ${errObj.stack}\n`;
+                                  combinedErrors += `\\nMessage: ${errObj.message}\\nStack: ${errObj.stack}\\n`;
                                 }
                                 if (!combinedErrors.trim()) {
-                                  combinedErrors = "(No detailed error message found)\n";
+                                  combinedErrors = "(No detailed error message found)\\n";
                                 }
 
-                                commentBody += `- **File**: \`${fileName}\`\n` +
-                                              `  **Test**: \`${testName}\`\n` +
-                                              `  **Project**: \`${project}\`\n` +
-                                              `  **Error**:\n\`\`\`\n${combinedErrors}\n\`\`\`\n\n`;
+                                commentBody += `- **File**: \`${fileName}\`\\n`;
+                                commentBody += `  **Test**: \`${testName}\`\\n`;
+                                commentBody += `  **Project**: \`${project}\`\\n`;
+                                commentBody += `  **Error**:\\n\`\`\`\\n${combinedErrors}\\n\`\`\`\\n\\n`;
                               }
                             }
                           }
                         }
                       }
                     }
-                    // Some suites can contain nested suites
                     if (suite.suites) {
                       recurseSuites(suite.suites);
                     }
@@ -170,10 +161,10 @@ jobs:
                 recurseSuites(pwData.suites);
               }
             } catch (err) {
-              commentBody += "**Playwright**: Could not read `playwright-report/report.json` or parse it.\n\n";
+              commentBody += "**Playwright**: Could not read \`playwright-report/report.json\` or parse it.\\n\\n";
             }
 
-            commentBody += "---\nIf you see failing tests, these details might help you or your AI agent fix them.\n\n";
+            commentBody += "---\\nIf you see failing tests, these details might help you or your AI agent fix them.\\n\\n";
 
             // Post the comment on the PR
             const prNumber = context.payload.pull_request.number;
