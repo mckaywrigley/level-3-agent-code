@@ -67,43 +67,115 @@ jobs:
         # This writes the JSON to 'playwright-report/report.json'.
 
       # 8) Combine & Post Results to PR (only if this is a pull_request event)
-      - name: Combine Test Results and Comment
+      - name: Combine & Comment Detailed Test Results
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/github-script@v6
         with:
           script: |
             const fs = require("fs");
 
-            // Attempt to read jest results
-            let jestSummary = "**Jest Unit Tests**: Could not read jest-results.json.\n";
+            // We’ll store the final output in a big string
+            let commentBody = "### Full Test Results\n\n";
+            commentBody += "Below are details on any failing tests. Use them to debug manually or feed back to the AI agent.\n\n";
+
+            // --- Parse Jest ---
             try {
               const jestRaw = fs.readFileSync("jest-results.json", "utf8");
               const jestData = JSON.parse(jestRaw);
-              const total = jestData.numTotalTests;
+
+              const totalTests = jestData.numTotalTests;
               const passed = jestData.numPassedTests;
               const failed = jestData.numFailedTests;
-              jestSummary = `**Jest Unit Tests**\n- Total: ${total}\n- Passed: ${passed}\n- Failed: ${failed}\n`;
+
+              commentBody += `**Jest**  
+      - Total: ${totalTests}  
+      - Passed: ${passed}  
+      - Failed: ${failed}\n\n`;
+
+              // If there's failing tests, gather them
+              if (failed > 0 && Array.isArray(jestData.testResults)) {
+                commentBody += "**Jest Failures**\n";
+                for (const fileResult of jestData.testResults) {
+                  for (const testResult of fileResult.testResults) {
+                    if (testResult.status === "failed") {
+                      const failMsg = testResult.failureMessages.join("\n");
+                      commentBody += `- **File**: \`${fileResult.name}\`\n` +
+                                    `  **Test**: \`${testResult.title}\`\n` +
+                                    `  **Error**:\n\`\`\`\n${failMsg}\n\`\`\`\n\n`;
+                    }
+                  }
+                }
+              }
             } catch (err) {
-              // file not found or parse error
+              commentBody += "**Jest**: Could not read `jest-results.json` or parse it.\n\n";
             }
 
-            // Attempt to read playwright results
-            let pwSummary = "**Playwright E2E**: Could not read playwright-report/report.json.\n";
+            // --- Parse Playwright ---
             try {
               const pwRaw = fs.readFileSync("playwright-report/report.json", "utf8");
               const pwData = JSON.parse(pwRaw);
-              const stats = pwData.stats;
-              const passed = stats.expected;
-              const failed = stats.unexpected;
-              pwSummary = `**Playwright E2E**\n- Passed: ${passed}\n- Failed: ${failed}\n`;
+
+              const stats = pwData.stats || {};
+              const totalPassed = stats.expected || 0;
+              const totalFailed = stats.unexpected || 0;
+
+              commentBody += `**Playwright**  
+      - Passed: ${totalPassed}  
+      - Failed: ${totalFailed}\n\n`;
+
+              // If there's failing tests, gather them
+              if (totalFailed > 0 && Array.isArray(pwData.suites)) {
+                commentBody += "**Playwright Failures**\n";
+
+                function recurseSuites(suites) {
+                  for (const suite of suites) {
+                    if (suite.specs) {
+                      for (const spec of suite.specs) {
+                        // Each spec might have multiple tests
+                        for (const test of spec.tests) {
+                          if (test.status === "unexpected") {
+                            // This test is failing
+                            const testName = spec.title;
+                            const fileName = spec.file;
+                            const project = test.projectName;
+
+                            // Each test has one or more results
+                            for (const result of test.results) {
+                              if (result.status !== "passed") {
+                                let combinedErrors = "";
+                                for (const errObj of (result.errors || [])) {
+                                  combinedErrors += `\nMessage: ${errObj.message}\nStack: ${errObj.stack}\n`;
+                                }
+                                if (!combinedErrors.trim()) {
+                                  combinedErrors = "(No detailed error message found)\n";
+                                }
+
+                                commentBody += `- **File**: \`${fileName}\`\n` +
+                                              `  **Test**: \`${testName}\`\n` +
+                                              `  **Project**: \`${project}\`\n` +
+                                              `  **Error**:\n\`\`\`\n${combinedErrors}\n\`\`\`\n\n`;
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                    // Some suites can contain nested suites
+                    if (suite.suites) {
+                      recurseSuites(suite.suites);
+                    }
+                  }
+                }
+
+                recurseSuites(pwData.suites);
+              }
             } catch (err) {
-              // file not found or parse error
+              commentBody += "**Playwright**: Could not read `playwright-report/report.json` or parse it.\n\n";
             }
 
-            // Build final comment
-            let commentBody = "### Combined Test Results\n\n" + jestSummary + "\n" + pwSummary;
+            commentBody += "---\nIf you see failing tests, these details might help you or your AI agent fix them.\n\n";
 
-            // Post comment to the PR
+            // Post the comment on the PR
             const prNumber = context.payload.pull_request.number;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
