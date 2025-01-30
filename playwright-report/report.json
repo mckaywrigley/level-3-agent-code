@@ -104,12 +104,12 @@
                 {
                   "workerIndex": 0,
                   "status": "passed",
-                  "duration": 466,
+                  "duration": 2510,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2025-01-30T02:57:53.135Z",
+                  "startTime": "2025-01-30T05:38:59.109Z",
                   "attachments": []
                 }
               ],
@@ -136,12 +136,12 @@
                 {
                   "workerIndex": 2,
                   "status": "passed",
-                  "duration": 853,
+                  "duration": 895,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2025-01-30T02:57:53.135Z",
+                  "startTime": "2025-01-30T05:38:59.110Z",
                   "attachments": []
                 }
               ],
@@ -168,12 +168,12 @@
                 {
                   "workerIndex": 4,
                   "status": "passed",
-                  "duration": 589,
+                  "duration": 2489,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2025-01-30T02:57:53.135Z",
+                  "startTime": "2025-01-30T05:38:59.110Z",
                   "attachments": []
                 }
               ],
@@ -202,7 +202,7 @@
           "specs": [
             {
               "title": "can visit homepage and see some text",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
@@ -214,17 +214,55 @@
                   "results": [
                     {
                       "workerIndex": 1,
-                      "status": "passed",
-                      "duration": 382,
-                      "errors": [],
+                      "status": "failed",
+                      "duration": 6549,
+                      "error": {
+                        "message": "Error: \u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n",
+                        "stack": "Error: \u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n\n    at /Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts:7:38",
+                        "matcherResult": {
+                          "name": "toContainText",
+                          "expected": "Home Page",
+                          "message": "\u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n",
+                          "pass": false,
+                          "actual": "yo yo yo",
+                          "log": [
+                            "  - expect.toContainText with timeout 5000ms",
+                            "  - waiting for locator('h1')",
+                            "    9 × locator resolved to <h1>yo yo yo</h1>",
+                            "      - unexpected value \"yo yo yo\""
+                          ],
+                          "timeout": 5000
+                        },
+                        "location": {
+                          "file": "/Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts",
+                          "column": 38,
+                          "line": 7
+                        },
+                        "snippet": "\u001b[0m \u001b[90m  5 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m\"/\"\u001b[39m)\n \u001b[90m  6 |\u001b[39m     \u001b[90m// Suppose your Next.js homepage shows \"Home Page\"\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m  7 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m\"h1\"\u001b[39m))\u001b[33m.\u001b[39mtoContainText(\u001b[32m\"Home Page\"\u001b[39m)\n \u001b[90m    |\u001b[39m                                      \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m  8 |\u001b[39m   })\n \u001b[90m  9 |\u001b[39m })\n \u001b[90m 10 |\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts",
+                            "column": 38,
+                            "line": 7
+                          },
+                          "message": "Error: \u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n\n\n\u001b[0m \u001b[90m  5 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m\"/\"\u001b[39m)\n \u001b[90m  6 |\u001b[39m     \u001b[90m// Suppose your Next.js homepage shows \"Home Page\"\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m  7 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m\"h1\"\u001b[39m))\u001b[33m.\u001b[39mtoContainText(\u001b[32m\"Home Page\"\u001b[39m)\n \u001b[90m    |\u001b[39m                                      \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m  8 |\u001b[39m   })\n \u001b[90m  9 |\u001b[39m })\n \u001b[90m 10 |\u001b[39m\u001b[0m\n\u001b[2m    at /Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts:7:38\u001b[22m"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-01-30T02:57:53.135Z",
-                      "attachments": []
+                      "startTime": "2025-01-30T05:38:59.110Z",
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "/Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts",
+                        "column": 38,
+                        "line": 7
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "unexpected"
                 }
               ],
               "id": "8946741c555a0c4515d8-9dad39f71d298a75ef46",
@@ -234,7 +272,7 @@
             },
             {
               "title": "can visit homepage and see some text",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
@@ -246,17 +284,55 @@
                   "results": [
                     {
                       "workerIndex": 3,
-                      "status": "passed",
-                      "duration": 692,
-                      "errors": [],
+                      "status": "failed",
+                      "duration": 6016,
+                      "error": {
+                        "message": "Error: \u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n",
+                        "stack": "Error: \u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n\n    at /Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts:7:38",
+                        "matcherResult": {
+                          "name": "toContainText",
+                          "expected": "Home Page",
+                          "message": "\u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n",
+                          "pass": false,
+                          "actual": "yo yo yo",
+                          "log": [
+                            "  - expect.toContainText with timeout 5000ms",
+                            "  - waiting for locator('h1')",
+                            "    9 × locator resolved to <h1>yo yo yo</h1>",
+                            "      - unexpected value \"yo yo yo\""
+                          ],
+                          "timeout": 5000
+                        },
+                        "location": {
+                          "file": "/Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts",
+                          "column": 38,
+                          "line": 7
+                        },
+                        "snippet": "\u001b[0m \u001b[90m  5 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m\"/\"\u001b[39m)\n \u001b[90m  6 |\u001b[39m     \u001b[90m// Suppose your Next.js homepage shows \"Home Page\"\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m  7 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m\"h1\"\u001b[39m))\u001b[33m.\u001b[39mtoContainText(\u001b[32m\"Home Page\"\u001b[39m)\n \u001b[90m    |\u001b[39m                                      \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m  8 |\u001b[39m   })\n \u001b[90m  9 |\u001b[39m })\n \u001b[90m 10 |\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts",
+                            "column": 38,
+                            "line": 7
+                          },
+                          "message": "Error: \u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n\n\n\u001b[0m \u001b[90m  5 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m\"/\"\u001b[39m)\n \u001b[90m  6 |\u001b[39m     \u001b[90m// Suppose your Next.js homepage shows \"Home Page\"\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m  7 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m\"h1\"\u001b[39m))\u001b[33m.\u001b[39mtoContainText(\u001b[32m\"Home Page\"\u001b[39m)\n \u001b[90m    |\u001b[39m                                      \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m  8 |\u001b[39m   })\n \u001b[90m  9 |\u001b[39m })\n \u001b[90m 10 |\u001b[39m\u001b[0m\n\u001b[2m    at /Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts:7:38\u001b[22m"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-01-30T02:57:53.134Z",
-                      "attachments": []
+                      "startTime": "2025-01-30T05:38:59.110Z",
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "/Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts",
+                        "column": 38,
+                        "line": 7
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "unexpected"
                 }
               ],
               "id": "8946741c555a0c4515d8-082303190ec0d9b60460",
@@ -266,7 +342,7 @@
             },
             {
               "title": "can visit homepage and see some text",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
@@ -278,17 +354,55 @@
                   "results": [
                     {
                       "workerIndex": 5,
-                      "status": "passed",
-                      "duration": 530,
-                      "errors": [],
+                      "status": "failed",
+                      "duration": 6553,
+                      "error": {
+                        "message": "Error: \u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n",
+                        "stack": "Error: \u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n\n    at /Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts:7:38",
+                        "matcherResult": {
+                          "name": "toContainText",
+                          "expected": "Home Page",
+                          "message": "\u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n",
+                          "pass": false,
+                          "actual": "yo yo yo",
+                          "log": [
+                            "  - expect.toContainText with timeout 5000ms",
+                            "  - waiting for locator('h1')",
+                            "    9 × locator resolved to <h1>yo yo yo</h1>",
+                            "      - unexpected value \"yo yo yo\""
+                          ],
+                          "timeout": 5000
+                        },
+                        "location": {
+                          "file": "/Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts",
+                          "column": 38,
+                          "line": 7
+                        },
+                        "snippet": "\u001b[0m \u001b[90m  5 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m\"/\"\u001b[39m)\n \u001b[90m  6 |\u001b[39m     \u001b[90m// Suppose your Next.js homepage shows \"Home Page\"\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m  7 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m\"h1\"\u001b[39m))\u001b[33m.\u001b[39mtoContainText(\u001b[32m\"Home Page\"\u001b[39m)\n \u001b[90m    |\u001b[39m                                      \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m  8 |\u001b[39m   })\n \u001b[90m  9 |\u001b[39m })\n \u001b[90m 10 |\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts",
+                            "column": 38,
+                            "line": 7
+                          },
+                          "message": "Error: \u001b[31mTimed out 5000ms waiting for \u001b[39m\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m\n\nLocator: locator('h1')\nExpected string: \u001b[32m\"Home Page\"\u001b[39m\nReceived string: \u001b[31m\"yo yo yo\"\u001b[39m\nCall log:\n\u001b[2m  - expect.toContainText with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('h1')\u001b[22m\n\u001b[2m    9 × locator resolved to <h1>yo yo yo</h1>\u001b[22m\n\u001b[2m      - unexpected value \"yo yo yo\"\u001b[22m\n\n\n\u001b[0m \u001b[90m  5 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgoto(\u001b[32m\"/\"\u001b[39m)\n \u001b[90m  6 |\u001b[39m     \u001b[90m// Suppose your Next.js homepage shows \"Home Page\"\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m  7 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mlocator(\u001b[32m\"h1\"\u001b[39m))\u001b[33m.\u001b[39mtoContainText(\u001b[32m\"Home Page\"\u001b[39m)\n \u001b[90m    |\u001b[39m                                      \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m  8 |\u001b[39m   })\n \u001b[90m  9 |\u001b[39m })\n \u001b[90m 10 |\u001b[39m\u001b[0m\n\u001b[2m    at /Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts:7:38\u001b[22m"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-01-30T02:57:53.136Z",
-                      "attachments": []
+                      "startTime": "2025-01-30T05:38:59.110Z",
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "/Users/mckaywrigley/Desktop/takeoff-ai/join-takeoff-example-repos/courses/levels-of-agents-course/agent-level-2-code/__tests__/e2e/basic.spec.ts",
+                        "column": 38,
+                        "line": 7
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "unexpected"
                 }
               ],
               "id": "8946741c555a0c4515d8-ff4b2ff94342a40b0d11",
@@ -303,11 +417,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-01-30T02:57:52.870Z",
-    "duration": 2046.011,
-    "expected": 6,
+    "startTime": "2025-01-30T05:38:58.846Z",
+    "duration": 8109.074,
+    "expected": 3,
     "skipped": 0,
-    "unexpected": 0,
+    "unexpected": 3,
     "flaky": 0
   }
 }
