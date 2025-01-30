@@ -1,0 +1,104 @@
+name: "CI - Jest + Playwright"
+
+on:
+  # Run this on all PR events so we test code from new branches
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Also run on pushes to these branches (optional)
+  push:
+    branches:
+      - main
+      - "feature/*"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # Permissions so we can post a PR comment
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      # 1) Check out your repo
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      # 2) Set up Node
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      # 3) Install dependencies
+      - name: Install
+        run: npm install
+
+      # 4) Build your Next.js app
+      - name: Build Next.js
+        run: npm run build
+
+      # 5) Start Next.js in the background
+      - name: Start Next.js
+        run: |
+          npm start &
+          npx wait-on http://localhost:3000
+
+      # 6) Run Jest unit tests
+      - name: Run Jest (Unit Tests)
+        run: |
+          npm run test:unit:ci || true
+        # ^ '|| true' ensures we keep going even if tests fail,
+        # so we can parse the results JSON in the next step.
+
+      # 7) Run Playwright e2e tests
+      - name: Run Playwright (E2E Tests)
+        run: |
+          npm run test:e2e:ci || true
+        # This writes the JSON to 'playwright-report/report.json'.
+
+      # 8) Combine & Post Results to PR (only if this is a pull_request event)
+      - name: Combine Test Results and Comment
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require("fs");
+
+            // Attempt to read jest results
+            let jestSummary = "**Jest Unit Tests**: Could not read jest-results.json.\n";
+            try {
+              const jestRaw = fs.readFileSync("jest-results.json", "utf8");
+              const jestData = JSON.parse(jestRaw);
+              const total = jestData.numTotalTests;
+              const passed = jestData.numPassedTests;
+              const failed = jestData.numFailedTests;
+              jestSummary = `**Jest Unit Tests**\n- Total: ${total}\n- Passed: ${passed}\n- Failed: ${failed}\n`;
+            } catch (err) {
+              // file not found or parse error
+            }
+
+            // Attempt to read playwright results
+            let pwSummary = "**Playwright E2E**: Could not read playwright-report/report.json.\n";
+            try {
+              const pwRaw = fs.readFileSync("playwright-report/report.json", "utf8");
+              const pwData = JSON.parse(pwRaw);
+              const stats = pwData.stats;
+              const passed = stats.expected;
+              const failed = stats.unexpected;
+              pwSummary = `**Playwright E2E**\n- Passed: ${passed}\n- Failed: ${failed}\n`;
+            } catch (err) {
+              // file not found or parse error
+            }
+
+            // Build final comment
+            let commentBody = "### Combined Test Results\n\n" + jestSummary + "\n" + pwSummary;
+
+            // Post comment to the PR
+            const prNumber = context.payload.pull_request.number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: commentBody
+            });

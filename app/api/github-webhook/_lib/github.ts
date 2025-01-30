@@ -2,21 +2,20 @@ import { createAppAuth } from "@octokit/auth-app"
 import { Octokit } from "@octokit/rest"
 import { Buffer } from "buffer"
 
-const { GITHUB_APP_ID, GITHUB_PRIVATE_KEY, GITHUB_INSTALLATION_ID } =
-  process.env
+const { GH_APP_ID, GH_PRIVATE_KEY, GH_INSTALLATION_ID } = process.env
 
-if (!GITHUB_APP_ID || !GITHUB_PRIVATE_KEY || !GITHUB_INSTALLATION_ID) {
+if (!GH_APP_ID || !GH_PRIVATE_KEY || !GH_INSTALLATION_ID) {
   throw new Error(
-    "Missing GitHub App environment variables: GITHUB_APP_ID, GITHUB_PRIVATE_KEY, GITHUB_INSTALLATION_ID."
+    "Missing GitHub App environment variables: GH_APP_ID, GH_PRIVATE_KEY, GH_INSTALLATION_ID."
   )
 }
 
 export const octokit = new Octokit({
   authStrategy: createAppAuth,
   auth: {
-    appId: GITHUB_APP_ID,
-    privateKey: GITHUB_PRIVATE_KEY,
-    installationId: GITHUB_INSTALLATION_ID
+    appId: GH_APP_ID,
+    privateKey: GH_PRIVATE_KEY,
+    installationId: GH_INSTALLATION_ID
   }
 })
 
