@@ -1,7 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai"
 import { generateText } from "ai"
 import { parseStringPromise } from "xml2js"
-import { octokit } from "./github"
+import { createPlaceholderComment, updateComment } from "./comments"
 import { PullRequestContext } from "./handlers"
 
 const openai = createOpenAI({
@@ -12,7 +12,7 @@ const openai = createOpenAI({
 /**
  * parseReviewXml:
  * Helper to parse the AI's response as XML.
- * (This logic mirrors your “parseReviewXml” approach from lesson 1.)
+ * (This logic mirrors your "parseReviewXml" approach from lesson 1.)
  */
 async function parseReviewXml(xmlText: string) {
   try {
@@ -70,6 +70,32 @@ async function parseReviewXml(xmlText: string) {
 }
 
 /**
+ * Updates the comment with the final review
+ */
+async function updateCommentWithReview(
+  owner: string,
+  repo: string,
+  commentId: number,
+  analysis: Awaited<ReturnType<typeof parseReviewXml>>
+) {
+  const commentBody = `
+### AI Code Review
+
+**Summary**  
+${analysis.summary}
+
+${analysis.fileAnalyses
+  .map((f: any) => `**File:** ${f.path}\nAnalysis:\n${f.analysis}`)
+  .join("\n\n")}
+  
+**Suggestions**  
+${analysis.overallSuggestions.map((s: string) => `- ${s}`).join("\n")}
+`
+
+  await updateComment(owner, repo, commentId, commentBody)
+}
+
+/**
  * generateReview:
  * Calls LLM with an XML prompt, returning the parsed result.
  */
@@ -104,7 +130,7 @@ ${changedFiles
   `
 
   const { text } = await generateText({
-    model: openai("gpt-4"), // or whichever model you want
+    model: openai("o1"), // or whichever model you want
     prompt
   })
 
@@ -112,39 +138,26 @@ ${changedFiles
 }
 
 /**
- * handleReviewAgent:
- * Or “handleLevelOnePRReview” – the main entry point
- * that calls the AI and posts a comment with the results.
+ * Main handler that creates a placeholder comment, generates the review,
+ * and updates the comment with the results
  */
 export async function handleReviewAgent(context: PullRequestContext) {
   const { owner, repo, pullNumber } = context
 
   try {
-    // 1) Generate the review
-    const analysis = await generateReview(context)
-
-    // 2) Build a final comment from the analysis
-    const commentBody = `
-### AI Code Review
-
-**Summary**  
-${analysis.summary}
-
-${analysis.fileAnalyses
-  .map((f: any) => `**File:** ${f.path}\nAnalysis:\n${f.analysis}`)
-  .join("\n\n")}
-  
-**Suggestions**  
-${analysis.overallSuggestions.map((s: string) => `- ${s}`).join("\n")}
-  `
-
-    // 3) Post it to the PR
-    await octokit.issues.createComment({
+    // 1) Create placeholder comment
+    const placeholderId = await createPlaceholderComment(
       owner,
       repo,
-      issue_number: pullNumber,
-      body: commentBody
-    })
+      pullNumber,
+      "🤖 AI Code Review in progress..."
+    )
+
+    // 2) Generate the review
+    const analysis = await generateReview(context)
+
+    // 3) Update the comment with the review
+    await updateCommentWithReview(owner, repo, placeholderId, analysis)
   } catch (err) {
     console.error("Error in handleReviewAgent:", err)
   }
