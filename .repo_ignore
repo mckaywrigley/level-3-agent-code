@@ -31,7 +31,6 @@
 .cursorrules
 
 # Project Specific
-**/.github
 **/.husky
 **/prompts
 **/migrations

@@ -1,0 +1,98 @@
+name: "CI - Jest + Playwright"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches:
+      - main
+      - "feature/*"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    permissions:
+      # Adjust these so you can comment on PRs, if your GitHub App supports it
+      contents: write
+      pull-requests: write
+      # (If using GITHUB_TOKEN to comment, set "permissions: pull-requests: write")
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install
+        run: npm install
+
+      - name: Build Next.js
+        run: npm run build
+
+      - name: Start Next.js
+        run: |
+          npm start &
+          npx wait-on http://localhost:3000
+
+      - name: Run Jest (Unit Tests)
+        run: npm run test:unit:ci
+
+      - name: Run Playwright (E2E Tests)
+        run: npm run test:e2e:ci
+
+      # Optional: Combine results & post to PR
+      - name: Combine Test Results and Comment (Optional)
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require("fs");
+            let jestResults, pwResults;
+
+            // 1. Attempt to read jest-results.json
+            try {
+              const jestRaw = fs.readFileSync("jest-results.json", "utf8");
+              jestResults = JSON.parse(jestRaw);
+            } catch {
+              jestResults = null;
+            }
+
+            // 2. Attempt to read playwright-report/report.json
+            try {
+              const pwRaw = fs.readFileSync("playwright-report/report.json", "utf8");
+              pwResults = JSON.parse(pwRaw);
+            } catch {
+              pwResults = null;
+            }
+
+            // Format some summary text
+            let body = "### Combined Test Results\\n\\n";
+
+            if (jestResults) {
+              const total = jestResults.numTotalTests;
+              const passed = jestResults.numPassedTests;
+              const failed = jestResults.numFailedTests;
+              body += `**Jest Unit Tests**\\n- Total: ${total}\\n- Passed: ${passed}\\n- Failed: ${failed}\\n\\n`;
+            } else {
+              body += "**Jest Unit Tests**: No results found or error reading file.\\n\\n";
+            }
+
+            if (pwResults) {
+              const stats = pwResults.stats;
+              body += `**Playwright**\\n- Passed: ${stats.expected}\\n- Failed: ${stats.unexpected}\\n\\n`;
+            } else {
+              body += "**Playwright**: Could not read `playwright-report/report.json`. Possibly no file or error.\\n\\n";
+            }
+
+            // Post the comment on the PR
+            const prNumber = context.payload.pull_request.number;
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body
+            });
