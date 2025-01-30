@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react";
-import AboutPage from "@/app/about/page";
+import AboutPage from "@/app/about/page"
+import "@testing-library/jest-dom"
+import { render, screen } from "@testing-library/react"
 
 describe("AboutPage", () => {
-  it("renders About Page text", () => {
-    render(<AboutPage />);
-    expect(screen.getByText("About Page")).toBeInTheDocument();
-  });
-});
+  it("renders About Page text", async () => {
+    render(await AboutPage())
+    expect(screen.getByText("About Page")).toBeInTheDocument()
+  })
+})

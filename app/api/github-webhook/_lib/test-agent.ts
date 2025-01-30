@@ -118,6 +118,20 @@ We have two categories of tests:
 1) Unit tests (Jest + Testing Library), typically stored in \`__tests__/unit/\`.
 2) E2E tests (Playwright), typically stored in \`__tests__/e2e/\`.
 
+Also note:
+- If a React component is a **Server Component** (no "use client" at the top, or it uses server APIs), 
+  we must handle it asynchronously in tests. The test function should be \`async\` and the component 
+  must be awaited before rendering, e.g.:
+  
+  \`\`\`ts
+  it("renders MyServerComp properly", async () => {
+    render(await MyServerComp());
+    // assertions...
+  });
+  \`\`\`
+- If the component is a Client Component (explicit "use client" at the top), we can test it normally 
+  with synchronous \`render(<MyClientComp />)\`.
+
 Analyze the following pull request:
 Title: ${title}
 Commit Messages:
