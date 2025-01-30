@@ -4,7 +4,7 @@ import { parseStringPromise } from "xml2js"
 import { z } from "zod"
 import { createPlaceholderComment, updateComment } from "./comments"
 import { octokit } from "./github"
-import { PullRequestContext } from "./handlers"
+import { PullRequestContext, PullRequestContextWithTests } from "./handlers"
 
 /**
  * The shape we parse from the AI's XML output for test proposals.
@@ -105,18 +105,36 @@ async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
 
 /**
  * generateTestsForChanges:
- * Uses a robust prompt to request test proposals for changed files.
+ * Uses a robust prompt. It includes existing test files so that the model
+ * can update them if needed instead of always creating new ones.
  */
 async function generateTestsForChanges(
-  context: PullRequestContext
+  context: PullRequestContextWithTests
 ): Promise<TestProposal[]> {
-  const { title, changedFiles, commitMessages } = context
+  const { title, changedFiles, commitMessages, existingTestFiles } = context
+
+  // Provide full listing of existing test files + content:
+  const existingTestsPrompt = existingTestFiles
+    .map(
+      f => `
+Existing test file: ${f.filename}
+---
+${f.content}
+---
+`
+    )
+    .join("\n")
 
   const prompt = `
-You are an expert software developer specializing in writing tests for a Next.js codebase. 
+You are an expert software developer specializing in writing tests for a Next.js codebase.
 We have two categories of tests:
-1) Unit tests (Jest + Testing Library), typically stored in \`__tests__/unit/\`.
-2) E2E tests (Playwright), typically stored in \`__tests__/e2e/\`.
+1) Unit tests (Jest + Testing Library), typically in __tests__/unit/.
+2) E2E tests (Playwright), typically in __tests__/e2e/.
+
+We allow updating existing tests or creating new ones. If a file below matches 
+the functionality of a changed file, update that existing test instead of 
+creating a new one. Return the full final content for every file you modify 
+and for every new file you create.
 
 Also note:
 - If a React component is a **Server Component** (no "use client" at the top, or it uses server APIs), 
@@ -132,7 +150,7 @@ Also note:
 - If the component is a Client Component (explicit "use client" at the top), we can test it normally 
   with synchronous \`render(<MyClientComp />)\`.
 
-Analyze the following pull request:
+Analyze this pull request:
 Title: ${title}
 Commit Messages:
 ${commitMessages.map(msg => `- ${msg}`).join("\n")}
@@ -151,23 +169,28 @@ ${file.content ?? "N/A"}
   )
   .join("\n---\n")}
 
-Please propose any new or updated test files. Format your response as valid XML under a single <tests> root, containing <testProposals> with multiple <proposal> entries. For each <proposal>, include:
-<filename>__tests__/unit/Example.test.ts or __tests__/e2e/Example.spec.ts</filename>
-<testType>unit or e2e</testType>
-<testContent>[ENTIRE test code, no code blocks]</testContent>
+Existing Test Files:
+${existingTestsPrompt}
 
-For example:
+Output MUST be valid XML with a single root <tests>. 
+Inside it, place <testProposals> containing one or more <proposal>. 
+For each <proposal>:
+  <filename> (the file path in __tests__/...),
+  <testType> (either "unit" or "e2e"),
+  <testContent> (the ENTIRE updated or new test file content, no code blocks).
+
+Example:
 <tests>
   <testProposals>
     <proposal>
       <filename>__tests__/unit/MyUtil.test.ts</filename>
       <testType>unit</testType>
-      <testContent>// test code here</testContent>
+      <testContent>// entire updated code here</testContent>
     </proposal>
   </testProposals>
 </tests>
 
-Return ONLY valid XML, with no extra text or code blocks.
+ONLY return the <tests> XML with proposals. Do not add extra commentary.
 `
 
   try {
@@ -193,6 +216,7 @@ Return ONLY valid XML, with no extra text or code blocks.
 /**
  * commitTestsToExistingBranch:
  * Commits each test proposal to the existing PR branch (headRef).
+ * If the file already exists, GitHub will treat this as an update.
  */
 async function commitTestsToExistingBranch(
   owner: string,
@@ -218,7 +242,7 @@ async function commitTestsToExistingBranch(
       owner,
       repo,
       path: proposal.filename,
-      message: `Add tests: ${proposal.filename}`,
+      message: `Add/Update tests: ${proposal.filename}`,
       content: contentBase64,
       branch: branchName,
       sha: latestCommitSha
@@ -227,7 +251,7 @@ async function commitTestsToExistingBranch(
 }
 
 /**
- * Updates the comment with the final test generation results.
+ * Updates the comment with final test generation results.
  */
 async function updateCommentWithResults(
   owner: string,
@@ -241,10 +265,10 @@ async function updateCommentWithResults(
 
 ${
   testProposals.length > 0
-    ? `✅ Added these new/updated test files to branch \`${headRef}\`:
+    ? `✅ Added/updated these test files on branch \`${headRef}\`:
 ${testList}
 
-*(Pull from that branch locally to view or modify them.)*`
+*(Pull from that branch to see & modify them.)*`
     : `⚠️ No test proposals were generated.`
 }`
 
@@ -252,7 +276,7 @@ ${testList}
 }
 
 /**
- * Uses an LLM to decide if we should generate front-end tests, based on changed files.
+ * Uses an LLM to decide if we should generate front-end tests.
  */
 async function shouldGenerateFrontendTests(
   changedFiles: PullRequestContext["changedFiles"]
@@ -290,13 +314,16 @@ Analyze whether any of them warrant front-end tests. Provide a boolean (shouldGe
  * handleTestGeneration:
  * 1) Creates a placeholder comment
  * 2) Runs gating check
- * 3) If yes, generate test proposals
+ * 3) If yes, generate or update test proposals
  * 4) Commit to existing PR branch
  * 5) Update comment with results
  * 6) Remove label
  */
-export async function handleTestGeneration(context: PullRequestContext) {
-  const { owner, repo, pullNumber, headRef, changedFiles } = context
+export async function handleTestGeneration(
+  context: PullRequestContextWithTests
+) {
+  const { owner, repo, pullNumber, headRef, changedFiles, existingTestFiles } =
+    context
   let commentId: number | undefined
 
   try {
