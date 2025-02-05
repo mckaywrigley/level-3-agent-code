@@ -7,3 +7,4 @@ test("should navigate to About page from Home page", async ({ page }) => {
   await expect(page).toHaveURL("/about");
   await expect(page.getByText("About Page")).toBeVisible();
 });
+      
