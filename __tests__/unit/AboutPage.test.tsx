@@ -7,7 +7,6 @@ describe("AboutPage", () => {
   it("renders the updated about page text", async () => {
     const content = await AboutPage();
     render(content);
-    expect(screen.getByText("hello world!!!")).toBeInTheDocument();
+    expect(screen.getByText("About Page")).toBeInTheDocument();
   });
 });
-      
