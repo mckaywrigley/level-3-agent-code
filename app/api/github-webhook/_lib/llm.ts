@@ -21,7 +21,7 @@ export function getLLMModel() {
   const provider = process.env.LLM_PROVIDER || "openai"
 
   // Default model names if none are specified in environment variables
-  const openAIDefaultModel = "o1"
+  const openAIDefaultModel = "o3-mini"
   const anthropicDefaultModel = "claude-3-5-sonnet-latest"
 
   // If the user has specified "anthropic" as provider, we configure Anthropic
