@@ -29,6 +29,13 @@ jobs:
 
       - name: Build Next.js
         run: npm run build
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+          GH_INSTALLATION_ID: ${{ secrets.GH_INSTALLATION_ID }}
+          WEBHOOK_PROXY_URL: ${{ secrets.WEBHOOK_PROXY_URL }}
 
       - name: Run Jest
         run: npm run test:unit:ci || true
