@@ -1,8 +1,7 @@
 /*
 <ai_context>
-This route contains the main logic for handling GitHub webhook events.
-It acts as the entry point for all GitHub webhook requests and routes them
-to the appropriate handlers based on the event type and action.
+We removed or commented out the old label-based triggers. 
+We keep handleReviewAgent, handleTestGeneration, and handleTestFix for calls from our script.
 </ai_context>
 */
 
@@ -17,76 +16,46 @@ import { handleTestFix, handleTestGeneration } from "./_lib/test-agent"
 export async function POST(request: NextRequest) {
   try {
     const bodyText = await request.text()
+    console.log("Webhook route called with body:", bodyText)
 
     const payload = JSON.parse(bodyText || "{}")
-
     const eventType = request.headers.get("x-github-event")
-    console.log("Webhook event type:", eventType)
+    console.log("x-github-event:", eventType)
 
-    // Normal pull_request events
-    if (eventType === "pull_request") {
-      const action = payload.action
-      console.log("pull_request action:", action)
+    // We removed the old "pull_request" event logic that automatically did stuff.
 
-      // If a PR is newly opened/updated, do code review first, then test generation
-      if (
-        action === "opened" ||
-        action === "synchronize" ||
-        action === "reopened"
-      ) {
-        console.log("Running code review, then test generation...")
+    // Instead, if we see eventType === 'single_pass',
+    // we do code review + test generation in a single call:
+    if (eventType === "single_pass") {
+      console.log("Single-pass AI flow invoked from external script...")
 
-        const baseContext = await handlePullRequestBase(payload)
+      // Build context
+      const baseContext = await handlePullRequestBase(payload)
+      console.log("Base context built. Running code review...")
 
-        // 1) Review agent
-        const reviewAnalysis = await handleReviewAgent(baseContext)
-        console.log("Code review complete. Now building test context...")
+      const reviewAnalysis = await handleReviewAgent(baseContext)
+      console.log("Review done. Building test context to generate tests...")
 
-        // 2) Build test context
-        const testContext = await handlePullRequestForTestAgent(payload)
-        console.log(
-          "Test context built. Invoking handleTestGeneration with code review result..."
-        )
+      const testContext = await handlePullRequestForTestAgent(payload)
+      await handleTestGeneration(testContext, reviewAnalysis)
 
-        await handleTestGeneration(testContext, reviewAnalysis)
-      }
+      console.log("Single-pass flow done in route.")
     }
 
-    // Our custom "test_fix" event from the GitHub Action
+    // If we see eventType === 'test_fix', do iterative fix:
     else if (eventType === "test_fix") {
-      console.log("Received test_fix event from GH Action...")
+      console.log("Test fix event from external script...")
 
-      const pr = payload.pull_request
-      if (!pr) {
-        console.log("No pull_request data in test_fix payload. Exiting.")
-        return NextResponse.json({ message: "No PR data for test_fix" })
-      }
+      const baseContext = await handlePullRequestBase(payload)
+      const testContext = await handlePullRequestForTestAgent(payload)
+      const iteration = payload.iteration || 1
 
-      // We'll re-use the PR context approach
-      const mockPayload = {
-        repository: payload.repository,
-        pull_request: {
-          number: pr.number,
-          head: {
-            ref: pr.head.ref
-          },
-          body: pr.body
-        }
-      }
-
-      console.log("Building base context for test fix...")
-      const baseContext = await handlePullRequestBase(mockPayload)
-
-      console.log("Building test context for test fix...")
-      const testContext = await handlePullRequestForTestAgent(mockPayload)
-
-      // Now call handleTestFix
-      await handleTestFix(testContext, payload.iteration)
+      await handleTestFix(testContext, iteration)
     }
 
     return NextResponse.json({ message: "OK" })
   } catch (error) {
-    console.error("Error in webhook route:", error)
+    console.error("Error in route:", error)
     return NextResponse.json({ error: String(error) }, { status: 500 })
   }
 }

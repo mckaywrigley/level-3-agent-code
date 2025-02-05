@@ -36,7 +36,7 @@ const gatingSchema = z.object({
   decision: z.object({
     shouldGenerateTests: z.boolean(),
     reasoning: z.string(),
-    recommendation: z.string().optional()
+    recommendation: z.string()
   })
 })
 
