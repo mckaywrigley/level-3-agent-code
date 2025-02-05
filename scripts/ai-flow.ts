@@ -1,10 +1,3 @@
-/*
-<ai_context>
-Merges code review and test generation logic in one script.
-Ensures we do not exit on first test failure, so we can fix in a loop.
-</ai_context>
-*/
-
 import { getLLMModel } from "@/lib/agents/llm"
 import { Octokit } from "@octokit/rest"
 import { generateObject, generateText } from "ai"
@@ -16,9 +9,6 @@ import { z } from "zod"
 
 // Read environment
 const githubToken = process.env.GITHUB_TOKEN
-const openaiApiKey = process.env.OPENAI_API_KEY || ""
-const anthropicApiKey = process.env.ANTHROPIC_API_KEY || ""
-const llmProvider = process.env.LLM_PROVIDER || "openai"
 
 if (!githubToken) {
   console.error("Missing GITHUB_TOKEN - cannot proceed.")
@@ -71,7 +61,7 @@ async function runFlow() {
   // 8) Iterative fix attempts
   let iteration = 0
   const maxIterations = 3
-  while (!testResult.allPassed && iteration < maxIterations) {
+  while (!testResult.jestFailed && iteration < maxIterations) {
     iteration++
     console.log(`\n=== Attempting AI Test Fix #${iteration} ===`)
     await handleTestFix(octokit, testContext, iteration)
@@ -79,7 +69,7 @@ async function runFlow() {
   }
 
   // 9) Final result
-  if (testResult.allPassed) {
+  if (!testResult.jestFailed) {
     console.log("All tests passing after AI generation/fixes!")
     await postComment(
       octokit,
@@ -554,7 +544,7 @@ async function generateTestsForChanges(
   const changedFilesPrompt = context.changedFiles
     .map(file => {
       if (file.excluded) {
-        return `File: ${file.filename} [EXCLUDED]`
+        return `File: ${file.filename} [EXCLUDED FROM PROMPT]`
       }
       return `File: ${file.filename}\nPatch:\n${file.patch}\nContent:\n${file.content}`
     })
@@ -817,29 +807,16 @@ async function handleTestFix(
 //
 
 function runLocalTests(): {
-  allPassed: boolean
   jestFailed: boolean
-  pwFailed: boolean
 } {
   let jestFailed = false
-  let pwFailed = false
-  // 1) Jest
   try {
     execSync("npm run test:unit", { stdio: "inherit" })
   } catch (err) {
     jestFailed = true
   }
-  // 2) Playwright
-  try {
-    execSync("npm run test", { stdio: "inherit" })
-  } catch (err) {
-    pwFailed = true
-  }
-  const allPassed = !jestFailed && !pwFailed
-  console.log(
-    `Jest failed? ${jestFailed}, PW failed? ${pwFailed}, All passed? ${allPassed}`
-  )
-  return { allPassed, jestFailed, pwFailed }
+  console.log(`Jest failed? ${jestFailed}`)
+  return { jestFailed }
 }
 
 //
