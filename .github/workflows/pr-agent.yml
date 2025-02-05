@@ -1,0 +1,39 @@
+name: "Single-Pass PR Flow"
+
+on:
+  pull_request:
+    branches: [dev]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  pr-agent:
+    # This avoids re-triggering if the commit is from the GitHub Actions bot.
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Single-Pass Flow
+        # We'll create a script that calls our Next.js route with eventType=single_pass,
+        # commits any new tests, re-checks out, runs local tests, fix loop, etc.
+        run: npm run pr-flow
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # etc.
