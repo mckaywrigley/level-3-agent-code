@@ -10,3 +10,4 @@ describe("AboutPage", () => {
     expect(screen.getByText("About Page")).toBeInTheDocument();
   });
 });
+      
