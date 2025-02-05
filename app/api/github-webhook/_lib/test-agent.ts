@@ -10,25 +10,28 @@ import { parseStringPromise } from "xml2js"
 import { z } from "zod"
 import { createPlaceholderComment, updateComment } from "./comments"
 import { octokit } from "./github"
-import { PullRequestContextWithTests, removeLabel } from "./handlers"
+import { PullRequestContextWithTests } from "./handlers"
 import { getLLMModel } from "./llm"
+import { ReviewAnalysis } from "./review-agent"
 
-// Interface defining the structure of a test proposal from the AI
+/**
+ * Interface for describing AI-generated test proposals:
+ * which files to create/update/rename, and their content.
+ */
 interface TestProposal {
-  filename: string // Path to the test file
-  testType?: "unit" | "e2e" // Type of test to generate
-  testContent: string // The actual test code
+  filename: string
+  testType?: "unit" | "e2e"
+  testContent: string
   actions?: {
-    // Actions to take with the file
     action: "create" | "update" | "rename"
-    oldFilename?: string // Used when renaming files
+    oldFilename?: string
   }
 }
 
-// Label that triggers the test generation process when added to a PR
-export const TEST_GENERATION_LABEL = "agent-generate-tests"
-
-// Zod schema for validating the AI's decision about whether to generate tests
+/**
+ * Our gating step checks if we should generate tests at all, based on changed files and existing tests.
+ * We use a zod schema to parse the AI's JSON.
+ */
 const gatingSchema = z.object({
   decision: z.object({
     shouldGenerateTests: z.boolean(),
@@ -38,72 +41,75 @@ const gatingSchema = z.object({
 })
 
 /**
- * Parses the XML response from the AI model into structured test proposals
- *
- * @param xmlText - The XML string from the AI model
- * @returns Array of parsed test proposals
+ * Helper for logging proposals to console in a condensed format
+ */
+function consoleLogProposals(proposals: TestProposal[]) {
+  console.log(
+    "AI Test proposals:",
+    proposals.map(p => ({
+      filename: p.filename,
+      testType: p.testType,
+      action: p.actions?.action
+    }))
+  )
+}
+
+/**
+ * Parse <tests> XML from the LLM's response to produce an array of TestProposal objects.
  */
 async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
-  // Extract the tests XML portion from the response by locating <tests> ... </tests>
+  console.log("Parsing test XML from AI response...")
   const startTag = "<tests>"
   const endTag = "</tests>"
   const startIndex = xmlText.indexOf(startTag)
   const endIndex = xmlText.indexOf(endTag) + endTag.length
-  if (startIndex === -1 || endIndex === -1) return []
+  if (startIndex === -1 || endIndex === -1) {
+    console.log("No <tests> XML found.")
+    return []
+  }
 
-  // Parse the isolated XML using xml2js
   const xmlPortion = xmlText.slice(startIndex, endIndex)
   const parsed = await parseStringPromise(xmlPortion)
   const proposals: TestProposal[] = []
 
-  // Extract root element and validate structure
   const root = parsed.tests
-  if (!root?.testProposals) return []
+  if (!root?.testProposals) return proposals
 
-  // Access the array of proposals inside <testProposals>
   const testProposalsArr = root.testProposals[0].proposal
-  if (!Array.isArray(testProposalsArr)) return []
+  if (!Array.isArray(testProposalsArr)) return proposals
 
-  // Each item should represent one test proposal
   for (const item of testProposalsArr) {
-    // Read data from the XML
     const filename = item.filename?.[0] ?? ""
     const testType = item.testType?.[0] ?? ""
     let testContent = item.testContent?.[0] ?? ""
 
-    // If testContent is an object (CDATA), pull out the actual text
+    // Handle CDATA for testContent
     if (typeof testContent === "object" && "_" in testContent) {
       testContent = testContent._
     }
 
-    // Parse possible file actions
     const actionNode = item.actions?.[0]
     let action: "create" | "update" | "rename" = "create"
     let oldFilename: string | undefined
 
     if (actionNode?.action?.[0]) {
       const raw = actionNode.action[0]
-      if (raw === "update" || raw === "rename" || raw === "create") {
-        action = raw
+      if (["create", "update", "rename"].includes(raw)) {
+        action = raw as "create" | "update" | "rename"
       }
     }
-
     if (actionNode?.oldFilename?.[0]) {
       oldFilename = actionNode.oldFilename[0]
     }
 
-    // Skip if required fields are missing
+    // Must have a filename and content
     if (!filename || !testContent) continue
 
-    // Build the final proposal object
     proposals.push({
       filename,
       testType: testType === "e2e" ? "e2e" : "unit",
       testContent,
-      actions: {
-        action,
-        oldFilename
-      }
+      actions: { action, oldFilename }
     })
   }
 
@@ -111,28 +117,21 @@ async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
 }
 
 /**
- * Finalizes test proposals by ensuring correct file extensions based on whether the changed files
- * are React code or not.
- *
- * @param proposals - Array of raw test proposals from parseTestXml
- * @param changedFiles - Information about files changed in the PR
- * @returns Array of finalized test proposals (with properly adjusted file extensions)
+ * Finalize test proposals by ensuring correct file extensions for React code vs. non-React code.
  */
 function finalizeTestProposals(
   proposals: TestProposal[],
-  changedFiles: PullRequestContextWithTests["changedFiles"]
+  context: PullRequestContextWithTests
 ): TestProposal[] {
+  console.log("Finalizing file extensions for test proposals...")
+  const { changedFiles } = context
+
   return proposals.map(proposal => {
-    // Check if the test is for React-related code by scanning changed file content
+    // For simplicity, if ANY changed file is React-based, we assume we need .test.tsx
+    // Or you can do a more advanced check per-file in a real scenario.
     const reactRelated = changedFiles.some(file => {
       if (!file.content) return false
       return (
-        file.filename ===
-          proposal.filename
-            .replace("__tests__/unit/", "")
-            .replace("__tests__/e2e/", "")
-            .replace(".test.tsx", "")
-            .replace(".test.ts", "") ||
         file.filename.endsWith(".tsx") ||
         file.content.includes("import React") ||
         file.content.includes('from "react"') ||
@@ -140,7 +139,6 @@ function finalizeTestProposals(
       )
     })
 
-    // If it's React-related, ensure .test.tsx; otherwise ensure .test.ts
     if (reactRelated) {
       if (!proposal.filename.endsWith(".test.tsx")) {
         proposal.filename = proposal.filename.replace(
@@ -162,112 +160,7 @@ function finalizeTestProposals(
 }
 
 /**
- * Generates test files based on changes in the PR. Uses AI to decide what tests to create or update.
- *
- * @param context - Pull request context with test information
- * @param recommendation - Optional recommendation from the gating step
- * @returns Array of test proposals describing which tests should be added or updated
- */
-async function generateTestsForChanges(
-  context: PullRequestContextWithTests,
-  recommendation?: string
-): Promise<TestProposal[]> {
-  const { title, changedFiles, commitMessages, existingTestFiles } = context
-
-  // Combine existing tests into a prompt snippet so the AI knows what's already tested
-  const existingTestsPrompt = existingTestFiles
-    .map(f => `Existing test file: ${f.filename}\n---\n${f.content}\n---\n`)
-    .join("\n")
-
-  // Summarize changed files for the AI
-  const changedFilesPrompt = changedFiles
-    .map(file => {
-      if (file.excluded) {
-        return `File: ${file.filename}\nStatus: ${file.status}\n[EXCLUDED FROM PROMPT]\n`
-      }
-      return `File: ${file.filename}\nStatus: ${file.status}\nPatch:\n${file.patch}\nCurrent Content:\n${file.content ?? "N/A"}\n`
-    })
-    .join("\n---\n")
-
-  // Craft the final AI prompt
-  const prompt = `
-You are an expert software developer specializing in writing tests for a Next.js codebase.
-
-You may use the recommendation below and/or go beyond it.
-
-Recommendation: ${recommendation ?? ""}
-
-Remember - you only generate tests for front-end code. This includes things like React components, pages, hooks, etc. You do not generate tests for back-end code. This includes things like API routes, database models, etc.
-
-Rules for naming test files:
-1) If a file is a React component (client or server) or a Next.js page, the test filename MUST end in ".test.tsx".
-2) If the file is purely back-end or non-React, use ".test.ts".
-3) If an existing test file has the wrong extension, propose removing/renaming it.
-4) If updating an existing test file that has the correct name, just update it in place.
-
-We have two test categories:
-(1) Unit tests (Jest + Testing Library) in \`__tests__/unit/\`
-(2) E2E tests (Playwright) in \`__tests__/e2e/\`
-
-If an existing test already covers related functionality, prefer updating it rather than creating a new file. Return final content for each file you modify or create.
-
-Other rules:
-- If a React component is a Server Component, handle it asynchronously in tests. If it's a Client Component, test it normally.
-
-Title: ${title}
-Commits:
-${commitMessages.map(m => `- ${m}`).join("\n")}
-Changed Files:
-${changedFilesPrompt}
-Existing Tests:
-${existingTestsPrompt}
-
-Return ONLY valid XML in the following structure:
-<tests>
-  <testProposals>
-    <proposal>
-      <filename>__tests__/unit/... .test.ts[x]</filename>
-      <testType>unit or e2e</testType>
-      <testContent><![CDATA[
-YOUR TEST CODE HERE
-]]></testContent>
-      <actions>
-        <action>create</action> OR <action>update</action> OR <action>rename</action>
-        <!-- if rename -->
-        <oldFilename>__tests__/unit/... .test.ts</oldFilename>
-      </actions>
-    </proposal>
-  </testProposals>
-</tests>
-
-ONLY return the <tests> XML with proposals. Do not add extra commentary.
-`
-
-  try {
-    // Use the configured LLM to generate text based on the prompt
-    const model = getLLMModel()
-    const { text } = await generateText({
-      model,
-      prompt
-    })
-    console.log("text", text)
-
-    // Parse the generated XML and finalize file extensions
-    const rawProposals = await parseTestXml(text)
-    return finalizeTestProposals(rawProposals, changedFiles)
-  } catch {
-    // If there's an error (like parsing or network), return empty proposals
-    return []
-  }
-}
-
-/**
- * Commits generated or updated test files to the existing PR branch.
- *
- * @param owner - Repository owner
- * @param repo - Repository name
- * @param branchName - The branch the PR is based on (head branch)
- * @param proposals - Test files to be created or updated
+ * Commits the given test proposals to the PR's existing branch on GitHub.
  */
 async function commitTestsToExistingBranch(
   owner: string,
@@ -275,18 +168,20 @@ async function commitTestsToExistingBranch(
   branchName: string,
   proposals: TestProposal[]
 ) {
+  console.log("Committing new/updated tests to the branch:", branchName)
+
   for (const proposal of proposals) {
-    const action = proposal.actions?.action ?? "create"
+    const action = proposal.actions?.action || "create"
     const oldFilename = proposal.actions?.oldFilename
 
-    // If the AI wants to rename a file, we first remove the old file (if it exists) and then create the new one
+    // If renaming a file
     if (
       action === "rename" &&
       oldFilename &&
       oldFilename !== proposal.filename
     ) {
+      console.log(`Renaming file: ${oldFilename} => ${proposal.filename}`)
       try {
-        // Attempt to delete the old file from the branch
         const { data: oldFile } = await octokit.repos.getContent({
           owner,
           repo,
@@ -304,13 +199,13 @@ async function commitTestsToExistingBranch(
           })
         }
       } catch (err: any) {
-        // If the old file doesn't exist, it's not a blocking error
+        // If 404, ignore
         if (err.status !== 404) throw err
       }
     }
 
     try {
-      // Check if the file already exists on the branch
+      // Check if file already exists
       const { data: existingFile } = await octokit.repos.getContent({
         owner,
         repo,
@@ -318,11 +213,10 @@ async function commitTestsToExistingBranch(
         ref: branchName
       })
 
-      // If it exists, update it. Otherwise, we'll go to the catch block to create it.
       const contentBase64 = Buffer.from(proposal.testContent, "utf8").toString(
         "base64"
       )
-
+      console.log(`Updating file: ${proposal.filename}`)
       await octokit.repos.createOrUpdateFileContents({
         owner,
         repo,
@@ -333,8 +227,9 @@ async function commitTestsToExistingBranch(
         sha: "sha" in existingFile ? existingFile.sha : undefined
       })
     } catch (error: any) {
-      // If the file does not exist (404), we create it
+      // If file does not exist
       if (error.status === 404) {
+        console.log(`File does not exist; creating: ${proposal.filename}`)
         const contentBase64 = Buffer.from(
           proposal.testContent,
           "utf8"
@@ -348,6 +243,7 @@ async function commitTestsToExistingBranch(
           branch: branchName
         })
       } else {
+        console.error("Error updating/creating file:", proposal.filename, error)
         throw error
       }
     }
@@ -355,13 +251,7 @@ async function commitTestsToExistingBranch(
 }
 
 /**
- * Updates the PR comment with the list of test files that were generated or updated.
- *
- * @param owner - Repository owner
- * @param repo - Repository name
- * @param commentId - ID of the comment used to track test generation status
- * @param headRef - The name of the branch where tests were committed
- * @param testProposals - Array of test proposals that were committed
+ * Updates a placeholder comment with the final result listing the new test files, if any.
  */
 async function updateCommentWithResults(
   owner: string,
@@ -370,7 +260,7 @@ async function updateCommentWithResults(
   headRef: string,
   testProposals: TestProposal[]
 ) {
-  // Create a bulleted list of test files for the comment
+  console.log("Updating comment with final test proposal results...")
   const testList = testProposals.map(t => `- **${t.filename}**`).join("\n")
   const body = `### AI Test Generator
 
@@ -386,16 +276,13 @@ ${testList}
 }
 
 /**
- * Makes an initial determination about whether test generation is needed,
- * based on the changed files and existing tests.
- *
- * @param context - Pull request context including file changes
- * @returns Object containing a boolean decision and reasoning
+ * Determine whether we should generate tests at all.
+ * Returns a boolean plus optional recommended approach from the LLM.
  */
 async function gatingStep(context: PullRequestContextWithTests) {
+  console.log("Performing gating step to see if test generation is needed...")
   const { title, changedFiles, commitMessages, existingTestFiles } = context
 
-  // Format existing tests for the prompt
   const existingTestsPrompt = existingTestFiles
     .map(
       f => `
@@ -407,7 +294,6 @@ ${f.content}
     )
     .join("\n")
 
-  // Format changed files for the prompt
   const changedFilesPrompt = changedFiles
     .map(file => {
       if (file.excluded) {
@@ -417,11 +303,10 @@ ${f.content}
     })
     .join("\n---\n")
 
-  // Construct the prompt for the AI model
   const prompt = `
 You are an expert in deciding if front-end tests are needed for these changes.
 
-You have the PR title, commits, and file diffs/content. Only return the object in JSON format: {"decision":{"shouldGenerateTests":true or false,"reasoning":"some text","recommendation":"some text"}}
+You have the PR title, commits, and file diffs/content. Only return JSON: {"decision":{"shouldGenerateTests":true or false,"reasoning":"some text","recommendation":"some text"}}
 
 Title: ${title}
 Commits:
@@ -433,8 +318,8 @@ ${existingTestsPrompt}
 `
 
   try {
-    // Use the configured LLM model for a gating decision
     const model = getLLMModel()
+    console.log("Sending gating prompt to LLM...")
     const result = await generateObject({
       model,
       schema: gatingSchema,
@@ -443,42 +328,34 @@ ${existingTestsPrompt}
       prompt
     })
 
-    console.log(
-      "shouldGenerate",
-      result.object.decision.shouldGenerateTests,
-      result.object.decision.reasoning,
-      result.object.decision.recommendation
-    )
-
+    console.log("LLM gating result:", result.object)
     return {
       shouldGenerate: result.object.decision.shouldGenerateTests,
       reason: result.object.decision.reasoning,
       recommendation: result.object.decision.recommendation
     }
-  } catch {
-    // Default to skipping test generation if there's an error in the gating step
-    return { shouldGenerate: false, reason: "Error in gating check" }
+  } catch (err) {
+    console.error("Error during gating step:", err)
+    return { shouldGenerate: false, reason: "Gating error" }
   }
 }
 
 /**
- * Main handler that orchestrates the test generation flow:
- * 1. Creates a placeholder comment
- * 2. Decides whether to generate tests (gating)
- * 3. If yes, generates and commits them
- * 4. Updates the comment with results
- * 5. Removes the "agent-generate-tests" label
- *
- * @param context - Pull request context with test-related data
+ * Generates test files (if gating says so) and commits them to the PR.
+ * We also allow passing the code review analysis to "prompt chain" it in.
  */
 export async function handleTestGeneration(
-  context: PullRequestContextWithTests
+  context: PullRequestContextWithTests,
+  reviewAnalysis?: ReviewAnalysis // optional param for code review chaining
 ) {
+  console.log(
+    "handleTestGeneration start. reviewAnalysis is optional, used for prompt chaining."
+  )
   const { owner, repo, pullNumber, headRef } = context
   let commentId: number | undefined
 
   try {
-    // 1. Create placeholder comment
+    console.log("Creating placeholder comment for test generation...")
     commentId = await createPlaceholderComment(
       owner,
       repo,
@@ -486,9 +363,10 @@ export async function handleTestGeneration(
       "🧪 AI Test Generation in progress..."
     )
 
-    // 2. Decide if we should generate tests
+    console.log("Running gating step for test generation...")
     const { shouldGenerate, reason, recommendation } = await gatingStep(context)
     if (!shouldGenerate) {
+      console.log("Skipping test generation per gating step. Reason:", reason)
       await updateComment(
         owner,
         repo,
@@ -498,26 +376,48 @@ export async function handleTestGeneration(
       return
     }
 
-    // 3. Generate and commit tests
-    const testProposals = await generateTestsForChanges(context, recommendation)
-    if (testProposals.length > 0) {
-      await commitTestsToExistingBranch(owner, repo, headRef, testProposals)
+    console.log("Continuing with test generation. Building prompt now...")
+    // We'll incorporate the code review result into the "recommendation" param
+    let combinedRecommendation = recommendation || ""
+    if (reviewAnalysis) {
+      console.log(
+        "Incorporating review analysis into the test generation prompt..."
+      )
+      combinedRecommendation += `\n\nCODE REVIEW RESULT:\nSummary: ${reviewAnalysis.summary}\n`
+      for (const f of reviewAnalysis.fileAnalyses) {
+        combinedRecommendation += `\nFile: ${f.path}\nAnalysis: ${f.analysis}`
+      }
+      if (reviewAnalysis.overallSuggestions.length > 0) {
+        combinedRecommendation += `\nSuggestions:\n- ${reviewAnalysis.overallSuggestions.join("\n- ")}`
+      }
+      console.log("Done appending code review result to recommendation.")
     }
 
-    // 4. Update comment with results
-    await updateCommentWithResults(
-      owner,
-      repo,
-      commentId,
-      headRef,
-      testProposals
+    console.log("Generating tests via AI...")
+    const testProposals = await generateTestsForChanges(
+      context,
+      combinedRecommendation
     )
+    console.log(
+      "Finished AI generation of tests. # proposals:",
+      testProposals.length
+    )
+    consoleLogProposals(testProposals)
 
-    // 5. Remove the generation label to indicate we're done
-    await removeLabel(owner, repo, pullNumber, TEST_GENERATION_LABEL)
+    if (testProposals.length > 0) {
+      const finalized = finalizeTestProposals(testProposals, context)
+      console.log("Committing final proposals to branch:", headRef)
+      await commitTestsToExistingBranch(owner, repo, headRef, finalized)
+      await updateCommentWithResults(owner, repo, commentId, headRef, finalized)
+    } else {
+      console.log("No test proposals returned from AI.")
+      await updateCommentWithResults(owner, repo, commentId, headRef, [])
+    }
+
+    console.log("handleTestGeneration done.")
   } catch (err) {
     console.error("Error in handleTestGeneration:", err)
-    if (typeof commentId !== "undefined") {
+    if (commentId !== undefined) {
       await updateComment(
         owner,
         repo,
@@ -525,5 +425,157 @@ export async function handleTestGeneration(
         "❌ Error generating tests. Please check the logs."
       )
     }
+  }
+}
+
+/**
+ * Called when tests fail in CI, and we want to fix them up to 3 times.
+ * No gating step needed, we already know we want new test logic.
+ */
+export async function handleTestFix(
+  context: PullRequestContextWithTests,
+  iteration?: number
+) {
+  console.log("handleTestFix start. iteration =", iteration)
+  const { owner, repo, pullNumber, headRef } = context
+  let commentId: number | undefined
+
+  try {
+    console.log(
+      "Creating placeholder comment for test fix attempt #",
+      iteration
+    )
+    commentId = await createPlaceholderComment(
+      owner,
+      repo,
+      pullNumber,
+      `🧪 AI Test Fix #${iteration} in progress...`
+    )
+
+    console.log(
+      "Generating new test proposals to fix failing tests. We skip gating, we already know we want to fix."
+    )
+    const fixPrompt = `We have failing tests. Attempt #${iteration}. Please fix existing or create new ones as needed.`
+
+    const testProposals = await generateTestsForChanges(context, fixPrompt)
+    console.log(
+      "Finished AI generation of fix proposals. # proposals:",
+      testProposals.length
+    )
+    consoleLogProposals(testProposals)
+
+    if (testProposals.length > 0) {
+      const finalized = finalizeTestProposals(testProposals, context)
+      console.log("Committing final fix proposals to branch:", headRef)
+      await commitTestsToExistingBranch(owner, repo, headRef, finalized)
+      await updateCommentWithResults(owner, repo, commentId, headRef, finalized)
+    } else {
+      console.log("No fix proposals returned from AI.")
+      await updateCommentWithResults(owner, repo, commentId, headRef, [])
+    }
+
+    console.log("handleTestFix done.")
+  } catch (error) {
+    console.error("Error in handleTestFix:", error)
+    if (commentId !== undefined) {
+      await updateComment(
+        owner,
+        repo,
+        commentId,
+        "❌ Error fixing tests. Please check the logs."
+      )
+    }
+  }
+}
+
+/**
+ * Helper function that actually calls the AI to create test proposals.
+ * We pass in an optional recommendation that can include code review text,
+ * or a note about failing tests, etc.
+ */
+async function generateTestsForChanges(
+  context: PullRequestContextWithTests,
+  recommendation?: string
+): Promise<TestProposal[]> {
+  console.log(
+    "generateTestsForChanges start with recommendation:",
+    recommendation || "N/A"
+  )
+  const { title, changedFiles, commitMessages, existingTestFiles } = context
+
+  const existingTestsPrompt = existingTestFiles
+    .map(f => `Existing test file: ${f.filename}\n---\n${f.content}\n---\n`)
+    .join("\n")
+
+  const changedFilesPrompt = changedFiles
+    .map(file => {
+      if (file.excluded) {
+        return `File: ${file.filename}\nStatus: ${file.status}\n[EXCLUDED FROM PROMPT]\n`
+      }
+      return `File: ${file.filename}\nStatus: ${file.status}\nPatch:\n${file.patch}\nCurrent Content:\n${
+        file.content ?? "N/A"
+      }\n`
+    })
+    .join("\n---\n")
+
+  const prompt = `
+You are an expert software developer specializing in writing tests for a Next.js codebase.
+
+You may use or ignore the recommendation below as you see fit.
+Recommendation: ${recommendation ?? ""}
+
+Remember - you only generate tests for front-end code (React components/pages/hooks).
+Do NOT generate tests for backend code (API routes, database, etc).
+
+Rules for naming test files:
+1) If a file is React or a Next.js page, tests must end ".test.tsx".
+2) If purely non-React, use ".test.ts".
+3) If an existing test file has the wrong extension, propose rename.
+4) If updating an existing test file, just update it in place.
+
+We have 2 categories:
+(1) Unit tests in "__tests__/unit/"
+(2) E2E tests in "__tests__/e2e/"
+
+If a test already covers it, prefer updating rather than creating new.
+
+Title: ${title}
+Commits:
+${commitMessages.map(m => `- ${m}`).join("\n")}
+Changed Files:
+${changedFilesPrompt}
+Existing Tests:
+${existingTestsPrompt}
+
+Return ONLY valid XML:
+
+<tests>
+  <testProposals>
+    <proposal>
+      <filename>__tests__/unit/... .test.ts[x]</filename>
+      <testType>unit or e2e</testType>
+      <testContent><![CDATA[
+YOUR TEST CODE HERE
+]]></testContent>
+      <actions>
+        <action>create|update|rename</action>
+        <oldFilename>__tests__/unit/something.test.ts</oldFilename>
+      </actions>
+    </proposal>
+  </testProposals>
+</tests>
+`
+
+  try {
+    const model = getLLMModel()
+    console.log("Sending test-generation prompt to LLM...")
+    const { text } = await generateText({ model, prompt })
+    console.log("Raw AI response for test generation:", text)
+
+    const rawProposals = await parseTestXml(text)
+    return finalizeTestProposals(rawProposals, context)
+  } catch (err) {
+    console.error("Error generating tests from AI:", err)
+    return []
   }
 }

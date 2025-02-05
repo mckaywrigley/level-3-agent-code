@@ -1,213 +1,52 @@
 name: "CI - Jest + Playwright"
 
 on:
-  # Run this on all PR events so we test code from new branches
   pull_request:
+    branches: [dev]
     types: [opened, synchronize, reopened, ready_for_review]
-  # Also run on pushes to these branches (optional)
   push:
     branches:
-      - main
-      - "feature/*"
+      - dev
 
 jobs:
   test:
     runs-on: ubuntu-latest
-
-    # Permissions so we can post a PR comment
     permissions:
       contents: write
       pull-requests: write
 
     steps:
-      # 1) Check out your repo
       - name: Check out code
         uses: actions/checkout@v3
 
-      # 2) Set up Node
       - name: Set up Node
         uses: actions/setup-node@v3
         with:
           node-version: 18
 
-      # 3) Install dependencies
-      - name: Install
+      - name: Install dependencies
         run: npm install
 
-      # 4) Install Playwright Browsers
-      - name: Install Playwright Browsers
-        run: npx playwright install --with-deps
-
-      # 5) Build your Next.js app (with env vars if needed)
       - name: Build Next.js
         run: npm run build
         env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
           GH_APP_ID: ${{ secrets.GH_APP_ID }}
           GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
           GH_INSTALLATION_ID: ${{ secrets.GH_INSTALLATION_ID }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           WEBHOOK_PROXY_URL: ${{ secrets.WEBHOOK_PROXY_URL }}
 
-      # 6) Start Next.js in the background
-      - name: Start Next.js
-        run: |
-          npm start &
-          npx wait-on http://localhost:3000
+      - name: Run Jest
+        run: npm run test:unit:ci || true
 
-      # 7) Run Jest unit tests
-      - name: Run Jest (Unit Tests)
-        run: |
-          npm run test:unit:ci || true
-        # ^ '|| true' ensures we keep going even if tests fail,
-        # so we can parse the results JSON in the next step.
+      - name: Run Playwright
+        run: npm run test:e2e:ci || true
 
-      # 8) Run Playwright e2e tests
-      - name: Run Playwright (E2E Tests)
-        run: |
-          npm run test:e2e:ci || true
-        # This writes the JSON to 'playwright-report/report.json' (assuming
-        # your config or CLI is set to produce it at that path).
-
-      # 9) Combine & Post Results to PR (only if this is a pull_request event)
-      - name: Combine & Comment Detailed Test Results
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const fs = require("fs");
-
-            //
-            // A simple regex to strip ANSI color codes from logs
-            //
-            const ansiRegex = new RegExp(
-              "[\\u001B\\u009B][[\\]()#;?]*((;[-a-zA-Z\\d\\/#&.:=?%@~_]+)*|[a-zA-Z\\d]+(?:;\\d+)*)[\\u0007]?(?:\\d{1,2}(;\\d{1,2})?)?",
-              "g"
-            );
-
-            function stripAnsi(str) {
-              if (!str) return "";
-              return str.replace(ansiRegex, "");
-            }
-
-            let commentBody = "### Full Test Results\\n\\n";
-            commentBody += "Below are details on any failing tests. Use them to debug or feed back to the AI agent.\\n\\n";
-
-            // --- Parse Jest ---
-            try {
-              const jestRaw = fs.readFileSync("jest-results.json", "utf8");
-              const jestData = JSON.parse(jestRaw);
-
-              const totalTests = jestData.numTotalTests;
-              const passed = jestData.numPassedTests;
-              const failed = jestData.numFailedTests;
-
-              commentBody += `**Jest**\\n  - Total: ${totalTests}\\n  - Passed: ${passed}\\n  - Failed: ${failed}\\n\\n`;
-
-              if (failed > 0 && Array.isArray(jestData.testResults)) {
-                commentBody += "**Jest Failures**\\n";
-                let encountered = new Set(); // optional dedup
-
-                for (const fileResult of jestData.testResults) {
-                  for (const testResult of fileResult.testResults) {
-                    if (testResult.status === "failed") {
-                      let failMsg = testResult.failureMessages.join("\\n");
-                      // Strip ANSI from the failure text
-                      failMsg = stripAnsi(failMsg);
-                      // Remove "Stack: undefined" if it appears
-                      failMsg = failMsg.replace(/Stack: undefined\\s*/g, "");
-
-                      // optional dedup
-                      if (!encountered.has(failMsg)) {
-                        encountered.add(failMsg);
-
-                        commentBody += `- **File**: \`${fileResult.name}\`\\n`;
-                        commentBody += `  **Test**: \`${testResult.title}\`\\n`;
-                        commentBody += "  **Error**:\\n```\\n" + failMsg + "\\n```\\n\\n";
-                      }
-                    }
-                  }
-                }
-              }
-            } catch (err) {
-              commentBody += "**Jest**: Could not read \`jest-results.json\` or parse it.\\n\\n";
-            }
-
-            // --- Parse Playwright ---
-            try {
-              const pwRaw = fs.readFileSync("playwright-report/report.json", "utf8");
-              const pwData = JSON.parse(pwRaw);
-
-              const stats = pwData.stats || {};
-              const totalPassed = stats.expected || 0;
-              const totalFailed = stats.unexpected || 0;
-
-              commentBody += `**Playwright**\\n  - Passed: ${totalPassed}\\n  - Failed: ${totalFailed}\\n\\n`;
-
-              if (totalFailed > 0 && Array.isArray(pwData.suites)) {
-                commentBody += "**Playwright Failures**\\n";
-
-                // optional dedup
-                let encounteredPw = new Set();
-
-                function recurseSuites(suites) {
-                  for (const suite of suites) {
-                    if (suite.specs) {
-                      for (const spec of suite.specs) {
-                        for (const test of spec.tests) {
-                          if (test.status === "unexpected") {
-                            const testName = spec.title;
-                            const fileName = spec.file;
-                            const project = test.projectName;
-
-                            for (const result of test.results) {
-                              if (result.status !== "passed") {
-                                let combinedErrors = "";
-                                for (const errObj of (result.errors || [])) {
-                                  let msg = stripAnsi(errObj.message || "");
-                                  let stack = stripAnsi(errObj.stack || "");
-                                  // remove "Stack: undefined"
-                                  stack = stack.replace(/Stack: undefined\\s*/g, "");
-
-                                  combinedErrors += `\\nMessage: ${msg}\\nStack: ${stack}\\n`;
-                                }
-                                if (!combinedErrors.trim()) {
-                                  combinedErrors = "(No detailed error message found)\\n";
-                                }
-
-                                // optional dedup
-                                if (!encounteredPw.has(combinedErrors)) {
-                                  encounteredPw.add(combinedErrors);
-
-                                  commentBody += `- **File**: \`${fileName}\`\\n`;
-                                  commentBody += `  **Test**: \`${testName}\`\\n`;
-                                  commentBody += `  **Project**: \`${project}\`\\n`;
-                                  commentBody += "  **Error**:\\n```\\n" + combinedErrors + "\\n```\\n\\n";
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                    if (suite.suites) {
-                      recurseSuites(suite.suites);
-                    }
-                  }
-                }
-
-                recurseSuites(pwData.suites);
-              }
-            } catch (err) {
-              commentBody += "**Playwright**: Could not read \`playwright-report/report.json\` or parse it.\\n\\n";
-            }
-
-            commentBody += "---\\nIf you see failing tests, these details might help you or your AI agent fix them.\\n\\n";
-
-            // Post the comment on the PR
-            const prNumber = context.payload.pull_request.number;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body: commentBody
-            });
+      - name: Analyze & Possibly Fix Tests
+        # We simply call our TS script
+        run: npm run analyze-tests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}

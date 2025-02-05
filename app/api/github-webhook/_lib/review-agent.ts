@@ -8,27 +8,26 @@ It uses an AI model to analyze code changes and provide structured feedback.
 import { generateText } from "ai"
 import { parseStringPromise } from "xml2js"
 import { createPlaceholderComment, updateComment } from "./comments"
-import { PullRequestContext, removeLabel } from "./handlers"
+import { PullRequestContext } from "./handlers"
 import { getLLMModel } from "./llm"
 
-// Label that triggers the review process when added to a PR
-export const REVIEW_LABEL = "agent-review-pr"
+export interface ReviewAnalysis {
+  summary: string
+  fileAnalyses: Array<{ path: string; analysis: string }>
+  overallSuggestions: string[]
+}
 
 /**
- * Parses the XML response from the AI model into a structured review format
- *
- * @param xmlText - The XML string from the AI model
- * @returns Parsed review data with summary, file analyses, and suggestions
+ * Parse <review> XML from AI
  */
-async function parseReviewXml(xmlText: string) {
+async function parseReviewXml(xmlText: string): Promise<ReviewAnalysis> {
   try {
-    // Locate the <review>...</review> portion within the AI's output
+    console.log("Parsing AI review XML...")
     const startTag = "<review>"
     const endTag = "</review>"
     const startIndex = xmlText.indexOf(startTag)
     const endIndex = xmlText.indexOf(endTag) + endTag.length
 
-    // If no XML section is found, return a placeholder review
     if (startIndex === -1 || endIndex === -1) {
       console.warn("No <review> XML found in AI output.")
       return {
@@ -38,25 +37,36 @@ async function parseReviewXml(xmlText: string) {
       }
     }
 
-    // Extract just the relevant XML portion
     const xmlPortion = xmlText.slice(startIndex, endIndex)
     const parsed = await parseStringPromise(xmlPortion)
 
-    // Build an object from the parsed XML
-    return {
+    const result: ReviewAnalysis = {
       summary: parsed.review.summary?.[0] ?? "",
-      fileAnalyses: Array.isArray(parsed.review.fileAnalyses?.[0]?.file)
-        ? parsed.review.fileAnalyses[0].file.map((f: any) => ({
-            path: f.path?.[0] ?? "",
-            analysis: f.analysis?.[0] ?? ""
-          }))
-        : [],
-      overallSuggestions: Array.isArray(
-        parsed.review.overallSuggestions?.[0]?.suggestion
-      )
-        ? parsed.review.overallSuggestions[0].suggestion.map((s: any) => s)
-        : []
+      fileAnalyses: [],
+      overallSuggestions: []
     }
+
+    if (
+      parsed.review.fileAnalyses?.[0]?.file &&
+      Array.isArray(parsed.review.fileAnalyses[0].file)
+    ) {
+      result.fileAnalyses = parsed.review.fileAnalyses[0].file.map(
+        (f: any) => ({
+          path: f.path?.[0] ?? "",
+          analysis: f.analysis?.[0] ?? ""
+        })
+      )
+    }
+
+    if (
+      parsed.review.overallSuggestions?.[0]?.suggestion &&
+      Array.isArray(parsed.review.overallSuggestions[0].suggestion)
+    ) {
+      result.overallSuggestions =
+        parsed.review.overallSuggestions[0].suggestion.map((s: any) => s)
+    }
+
+    return result
   } catch (err) {
     console.error("Error parsing review XML:", err)
     return {
@@ -68,47 +78,14 @@ async function parseReviewXml(xmlText: string) {
 }
 
 /**
- * Updates the GitHub comment with the AI-generated review content in a readable format
- *
- * @param owner - Repository owner
- * @param repo - Repository name
- * @param commentId - ID of the comment to update
- * @param analysis - Parsed review data
+ * Generate review text by sending diffs etc. to the AI model.
  */
-async function updateCommentWithReview(
-  owner: string,
-  repo: string,
-  commentId: number,
-  analysis: Awaited<ReturnType<typeof parseReviewXml>>
-) {
-  // Format the review analysis as Markdown
-  const commentBody = `
-### AI Code Review
-
-**Summary**  
-${analysis.summary}
-
-${analysis.fileAnalyses
-  .map((f: any) => `**File:** ${f.path}\nAnalysis:\n${f.analysis}`)
-  .join("\n\n")}
-  
-**Suggestions**  
-${analysis.overallSuggestions.map((s: string) => `- ${s}`).join("\n")}
-`
-
-  await updateComment(owner, repo, commentId, commentBody)
-}
-
-/**
- * Generates a code review using the AI model based on changes in a PR.
- *
- * @param context - Pull request context containing files and metadata
- * @returns Parsed review data from the AI
- */
-async function generateReview(context: PullRequestContext) {
+async function generateReview(
+  context: PullRequestContext
+): Promise<ReviewAnalysis> {
+  console.log("Generating code review via AI...")
   const { title, changedFiles, commitMessages } = context
 
-  // Prepare changed files prompt for the AI
   const changedFilesPrompt = changedFiles
     .map(file => {
       if (file.excluded) {
@@ -118,9 +95,8 @@ async function generateReview(context: PullRequestContext) {
     })
     .join("\n---\n")
 
-  // Construct the review prompt
   const prompt = `
-You are an expert code reviewer. Provide feedback on the following pull request changes in clear, concise paragraphs. 
+You are an expert code reviewer. Provide feedback on the following pull request changes in clear, concise paragraphs.
 Do not use code blocks for regular text. Format any suggestions as single-line bullet points.
 
 PR Title: ${title}
@@ -129,43 +105,31 @@ ${commitMessages.map(msg => `- ${msg}`).join("\n")}
 Changed Files:
 ${changedFilesPrompt}
 
-
 Return ONLY valid XML in the following structure (no extra commentary):
 <review>
-  <summary>[short summary of these changes]</summary>
+  <summary>[short summary]</summary>
   <fileAnalyses>
     <file>
       <path>[filename]</path>
-      <analysis>[analysis for that file]</analysis>
+      <analysis>[analysis text]</analysis>
     </file>
   </fileAnalyses>
   <overallSuggestions>
-    <suggestion>[single bullet suggestion]</suggestion>
+    <suggestion>[bullet suggestion]</suggestion>
   </overallSuggestions>
 </review>
-
-ONLY return the <review> XML with the summary, fileAnalyses, and overallSuggestions. Do not add extra commentary.
 `
 
   try {
-    // Generate the text from the AI model
     const model = getLLMModel()
-    const { text } = await generateText({
-      model,
-      prompt
-    })
+    console.log("Sending review prompt to AI model...")
+    const { text } = await generateText({ model, prompt })
+    console.log("AI review raw response:", text)
 
-    console.log(
-      "\n=== AI Response (Code Review) ===\n",
-      text,
-      "\n================\n"
-    )
-
-    // Parse the returned XML
-    return parseReviewXml(text)
+    const analysis = await parseReviewXml(text)
+    return analysis
   } catch (error) {
     console.error("Error generating or parsing AI analysis:", error)
-    // Return a fallback review object
     return {
       summary: "We were unable to analyze the code due to an internal error.",
       fileAnalyses: [],
@@ -175,20 +139,16 @@ ONLY return the <review> XML with the summary, fileAnalyses, and overallSuggesti
 }
 
 /**
- * Main handler for the review process:
- * 1. Create placeholder comment
- * 2. Generate code review using AI
- * 3. Update the comment with the review
- * 4. Remove the review label
- *
- * @param context - Pull request context
+ * Creates a placeholder comment, runs code review, updates comment with results,
+ * and returns the final ReviewAnalysis for chaining into test prompts.
  */
 export async function handleReviewAgent(context: PullRequestContext) {
+  console.log("handleReviewAgent start")
   const { owner, repo, pullNumber } = context
   let commentId: number | undefined
 
   try {
-    // 1. Create a placeholder comment while AI processes the review
+    console.log("Creating placeholder comment for code review...")
     commentId = await createPlaceholderComment(
       owner,
       repo,
@@ -196,23 +156,40 @@ export async function handleReviewAgent(context: PullRequestContext) {
       "🤖 AI Code Review in progress..."
     )
 
-    // 2. Generate the review
     const analysis = await generateReview(context)
+    console.log("Review analysis complete. Updating comment with results...")
 
-    // 3. Update the comment with the AI-generated review data
-    await updateCommentWithReview(owner, repo, commentId, await analysis)
+    const commentBody = `
+### AI Code Review
 
-    // 4. Remove the label so we don't re-run automatically
-    await removeLabel(owner, repo, pullNumber, REVIEW_LABEL)
+**Summary**  
+${analysis.summary}
+
+${analysis.fileAnalyses
+  .map(f => `**File:** ${f.path}\nAnalysis:\n${f.analysis}`)
+  .join("\n\n")}
+
+**Suggestions**  
+${analysis.overallSuggestions.map((s: string) => `- ${s}`).join("\n")}
+`
+    await updateComment(owner, repo, commentId, commentBody)
+    console.log("Review comment updated. Returning analysis...")
+
+    return analysis
   } catch (err) {
     console.error("Error in handleReviewAgent:", err)
-    if (typeof commentId !== "undefined") {
+    if (commentId !== undefined) {
       await updateComment(
         owner,
         repo,
         commentId,
         "❌ Error during code review. Please check the logs."
       )
+    }
+    return {
+      summary: "Error during code review",
+      fileAnalyses: [],
+      overallSuggestions: []
     }
   }
 }
