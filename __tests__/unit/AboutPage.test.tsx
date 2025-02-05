@@ -1,15 +1,14 @@
 
 import AboutPage from "@/app/about/page";
 import "@testing-library/jest-dom";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 
 describe("AboutPage", () => {
-  it("renders AboutPage with the correct text", async () => {
+  it("renders the AboutPage component and displays 'About Page'", async () => {
     const content = await AboutPage();
     render(content);
-    await waitFor(() => {
-      expect(screen.getByText("About Page")).toBeInTheDocument();
-    });
+    const aboutText = screen.getByText("About Page");
+    expect(aboutText).toBeInTheDocument();
   });
 });
       
