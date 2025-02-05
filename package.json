@@ -21,7 +21,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ci": "playwright test --project=chromium",
     "proxy:github": "tsx scripts/webhook-proxies/github.ts",
-    "analyze-tests": "tsx scripts/github-actions/analyze-tests.ts"
+    "pr-flow": "tsx scripts/github-actions/pr-flow.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.1.6",
