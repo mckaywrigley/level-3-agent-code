@@ -811,7 +811,7 @@ function runLocalTests(): {
 } {
   let jestFailed = false
   try {
-    execSync("npm run test:unit", { stdio: "inherit" })
+    execSync("npm run test", { stdio: "inherit" })
   } catch (err) {
     jestFailed = true
   }
