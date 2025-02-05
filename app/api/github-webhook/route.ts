@@ -1,68 +1,66 @@
+/*
+<ai_context>
+This route contains the main logic for handling GitHub webhook events.
+It acts as the entry point for all GitHub webhook requests and routes them
+to the appropriate handlers based on the event type and action.
+</ai_context>
+*/
+
 import { NextRequest, NextResponse } from "next/server"
 import {
   handlePullRequestBase,
   handlePullRequestForTestAgent
 } from "./_lib/handlers"
-import { handleReviewAgent } from "./_lib/review-agent"
-import { handleTestGeneration } from "./_lib/test-agent"
-import { verifyGitHubSignature } from "./_lib/verify-signature"
+import { handleReviewAgent, REVIEW_LABEL } from "./_lib/review-agent"
+import { handleTestGeneration, TEST_GENERATION_LABEL } from "./_lib/test-agent"
 
+/**
+ * Handles POST requests from GitHub webhooks.
+ * Depending on the event type and action, calls the appropriate agent or handler.
+ *
+ * @param request - The incoming webhook request from GitHub
+ * @returns A response indicating success or failure
+ */
 export async function POST(request: NextRequest) {
   try {
-    // 1) Read the raw body as text so we can verify signature
+    // Extract the raw body from the request
     const rawBody = await request.text()
-
-    // 2) If we have a secret, verify the signature
-    const secret = process.env.GH_WEBHOOK_SECRET
-    if (secret) {
-      const signature = request.headers.get("x-hub-signature-256") || ""
-      const valid = verifyGitHubSignature(rawBody, secret, signature)
-      if (!valid) {
-        return NextResponse.json(
-          { error: "Invalid signature." },
-          { status: 401 }
-        )
-      }
-    }
-
-    // 3) Parse the JSON from rawBody
+    // Parse it as JSON (GitHub sends JSON payload)
     const payload = JSON.parse(rawBody)
 
-    // 4) Check the event type from headers
+    // Determine what kind of GitHub event this is
     const eventType = request.headers.get("x-github-event")
 
-    // We only care about "pull_request" events in this example
+    // Handle pull request events
     if (eventType === "pull_request") {
-      // Review agent - uses base context without tests
+      // If a PR is newly opened, automatically run the review agent
       if (payload.action === "opened") {
         const context = await handlePullRequestBase(payload)
         await handleReviewAgent(context)
       }
 
-      // Test agent - needs context with existing tests
-      if (payload.action === "ready_for_review") {
-        const context = await handlePullRequestForTestAgent(payload)
-        await handleTestGeneration(context)
-      }
-
-      // Manual label triggers
+      // If a label is added to the PR, check which label it is
       if (payload.action === "labeled") {
         const labelName = payload.label?.name
 
-        if (labelName === "agent-ready-for-tests") {
-          const context = await handlePullRequestForTestAgent(payload)
-          await handleTestGeneration(context)
-        }
-
-        if (labelName === "agent-review") {
+        // If the label is for review, run the review agent
+        if (labelName === REVIEW_LABEL) {
           const context = await handlePullRequestBase(payload)
           await handleReviewAgent(context)
+        }
+
+        // If the label is for test generation, run the test agent
+        if (labelName === TEST_GENERATION_LABEL) {
+          const context = await handlePullRequestForTestAgent(payload)
+          await handleTestGeneration(context)
         }
       }
     }
 
+    // Return a success response to GitHub
     return NextResponse.json({ message: "OK" })
   } catch (error) {
+    // Log any errors that occur and return a 500 status
     console.error("Error in webhook route:", error)
     return NextResponse.json({ error: String(error) }, { status: 500 })
   }

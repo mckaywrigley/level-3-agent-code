@@ -1,40 +1,56 @@
+/*
+<ai_context>
+This file configures Playwright, a powerful end-to-end testing framework.
+It defines how our tests will run, what browsers to use, and various testing behaviors.
+</ai_context>
+*/
+
 import { defineConfig, devices } from "@playwright/test"
 
 export default defineConfig({
-  testDir: "__tests__/e2e", // Update to match your e2e test location
-  /* Run tests in files in parallel */
+  // The directory where our end-to-end tests live
+  testDir: "__tests__/e2e",
+
+  // Run all tests in parallel for speed
   fullyParallel: true,
-  /* Fail the build on CI if you accidentally left test.only in the source code. */
+
+  // In CI, forbid the usage of test.only
   forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
+
+  // Retry failing tests to reduce flakiness, especially in CI
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
+
+  // Limit concurrency in CI for resource reasons
   workers: process.env.CI ? 1 : undefined,
-  /* Reporter to use. See https://playwright.dev/docs/test-reporters */
+
+  // Configure how results are reported
   reporter: [
-    ["dot"], // or 'line' or something else you like
-    ["json", { outputFile: "playwright-report/report.json" }]
+    ["dot"],
+    ["json", { outputFile: "reports/playwright/report.json" }]
   ],
-  /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
+
+  // Global test configuration
   use: {
-    /* Base URL to use in actions like `await page.goto('/')`. */
     baseURL: "http://localhost:3000",
-    trace: "on-first-retry"
+    trace: "on-first-retry" // Collect trace only when retrying failed tests
   },
 
-  /* Configure projects for major browsers */
+  // Define the browsers and environments to test in
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] }
+      use: { ...devices["Desktop Chrome"] },
+      outputDir: "reports/playwright/chromium"
     },
     {
       name: "firefox",
-      use: { ...devices["Desktop Firefox"] }
+      use: { ...devices["Desktop Firefox"] },
+      outputDir: "reports/playwright/firefox"
     },
     {
       name: "webkit",
-      use: { ...devices["Desktop Safari"] }
+      use: { ...devices["Desktop Safari"] },
+      outputDir: "reports/playwright/webkit"
     }
   ]
 })
