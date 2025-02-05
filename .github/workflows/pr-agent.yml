@@ -25,12 +25,12 @@ jobs:
 
       - name: Build Next.js
         run: npm run build
-          env:
-            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-            LLM_PROVIDER: openai
-            GH_APP_ID: ${{ secrets.GH_APP_ID }}
-            GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
-            GH_INSTALLATION_ID: ${{ secrets.GH_INSTALLATION_ID }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_PROVIDER: openai
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+          GH_INSTALLATION_ID: ${{ secrets.GH_INSTALLATION_ID }}
 
       - name: Start Next.js
         run: |
