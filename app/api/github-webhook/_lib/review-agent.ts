@@ -1,31 +1,34 @@
-import { createOpenAI } from "@ai-sdk/openai"
+/*
+<ai_context>
+This file contains functions for generating and committing code reviews to a GitHub PR.
+It uses an AI model to analyze code changes and provide structured feedback.
+</ai_context>
+*/
+
 import { generateText } from "ai"
 import { parseStringPromise } from "xml2js"
 import { createPlaceholderComment, updateComment } from "./comments"
-import { octokit } from "./github"
-import { PullRequestContext } from "./handlers"
+import { PullRequestContext, removeLabel } from "./handlers"
+import { getLLMModel } from "./llm"
 
-// Label used to trigger or indicate a code review
-const REVIEW_LABEL = "agent-review"
-
-// Initialize our OpenAI client
-const openai = createOpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-  compatibility: "strict"
-})
+// Label that triggers the review process when added to a PR
+export const REVIEW_LABEL = "agent-review-pr"
 
 /**
- * parseReviewXml:
- * Parses the AI's response as XML within <review> ... </review> tags.
- * Returns an object with summary, fileAnalyses, and overallSuggestions.
+ * Parses the XML response from the AI model into a structured review format
+ *
+ * @param xmlText - The XML string from the AI model
+ * @returns Parsed review data with summary, file analyses, and suggestions
  */
 async function parseReviewXml(xmlText: string) {
   try {
+    // Locate the <review>...</review> portion within the AI's output
     const startTag = "<review>"
     const endTag = "</review>"
     const startIndex = xmlText.indexOf(startTag)
     const endIndex = xmlText.indexOf(endTag) + endTag.length
 
+    // If no XML section is found, return a placeholder review
     if (startIndex === -1 || endIndex === -1) {
       console.warn("No <review> XML found in AI output.")
       return {
@@ -35,9 +38,11 @@ async function parseReviewXml(xmlText: string) {
       }
     }
 
+    // Extract just the relevant XML portion
     const xmlPortion = xmlText.slice(startIndex, endIndex)
     const parsed = await parseStringPromise(xmlPortion)
 
+    // Build an object from the parsed XML
     return {
       summary: parsed.review.summary?.[0] ?? "",
       fileAnalyses: Array.isArray(parsed.review.fileAnalyses?.[0]?.file)
@@ -63,7 +68,12 @@ async function parseReviewXml(xmlText: string) {
 }
 
 /**
- * Updates the comment on GitHub with the final review text.
+ * Updates the GitHub comment with the AI-generated review content in a readable format
+ *
+ * @param owner - Repository owner
+ * @param repo - Repository name
+ * @param commentId - ID of the comment to update
+ * @param analysis - Parsed review data
  */
 async function updateCommentWithReview(
   owner: string,
@@ -71,6 +81,7 @@ async function updateCommentWithReview(
   commentId: number,
   analysis: Awaited<ReturnType<typeof parseReviewXml>>
 ) {
+  // Format the review analysis as Markdown
   const commentBody = `
 ### AI Code Review
 
@@ -89,37 +100,35 @@ ${analysis.overallSuggestions.map((s: string) => `- ${s}`).join("\n")}
 }
 
 /**
- * generateReview:
- * Gathers info from the PullRequestContext and creates a robust prompt for the code review.
- * The LLM returns XML, which we parse for the final review.
+ * Generates a code review using the AI model based on changes in a PR.
+ *
+ * @param context - Pull request context containing files and metadata
+ * @returns Parsed review data from the AI
  */
 async function generateReview(context: PullRequestContext) {
   const { title, changedFiles, commitMessages } = context
 
-  // Compose a more detailed, robust prompt
+  // Prepare changed files prompt for the AI
+  const changedFilesPrompt = changedFiles
+    .map(file => {
+      if (file.excluded) {
+        return `File: ${file.filename}\nStatus: ${file.status}\n[EXCLUDED FROM PROMPT]\n`
+      }
+      return `File: ${file.filename}\nStatus: ${file.status}\nPatch (diff):\n${file.patch}\nCurrent Content:\n${file.content ?? "N/A"}\n`
+    })
+    .join("\n---\n")
+
+  // Construct the review prompt
   const prompt = `
 You are an expert code reviewer. Provide feedback on the following pull request changes in clear, concise paragraphs. 
 Do not use code blocks for regular text. Format any suggestions as single-line bullet points.
 
 PR Title: ${title}
-
 Commit Messages:
 ${commitMessages.map(msg => `- ${msg}`).join("\n")}
-
 Changed Files:
-${changedFiles
-  .map(
-    file => `
-File: ${file.filename}
-Status: ${file.status}
-Patch (diff):
-${file.patch}
+${changedFilesPrompt}
 
-Current Content:
-${file.content ?? "N/A"}
-`
-  )
-  .join("\n---\n")}
 
 Return ONLY valid XML in the following structure (no extra commentary):
 <review>
@@ -134,11 +143,15 @@ Return ONLY valid XML in the following structure (no extra commentary):
     <suggestion>[single bullet suggestion]</suggestion>
   </overallSuggestions>
 </review>
+
+ONLY return the <review> XML with the summary, fileAnalyses, and overallSuggestions. Do not add extra commentary.
 `
 
   try {
+    // Generate the text from the AI model
+    const model = getLLMModel()
     const { text } = await generateText({
-      model: openai("o1"),
+      model,
       prompt
     })
 
@@ -148,9 +161,11 @@ Return ONLY valid XML in the following structure (no extra commentary):
       "\n================\n"
     )
 
+    // Parse the returned XML
     return parseReviewXml(text)
   } catch (error) {
     console.error("Error generating or parsing AI analysis:", error)
+    // Return a fallback review object
     return {
       summary: "We were unable to analyze the code due to an internal error.",
       fileAnalyses: [],
@@ -160,18 +175,20 @@ Return ONLY valid XML in the following structure (no extra commentary):
 }
 
 /**
- * Main handler that:
- * 1) Creates a placeholder comment
- * 2) Generates the code review
- * 3) Updates the comment with the results
- * 4) Removes the label if present
+ * Main handler for the review process:
+ * 1. Create placeholder comment
+ * 2. Generate code review using AI
+ * 3. Update the comment with the review
+ * 4. Remove the review label
+ *
+ * @param context - Pull request context
  */
 export async function handleReviewAgent(context: PullRequestContext) {
   const { owner, repo, pullNumber } = context
   let commentId: number | undefined
 
   try {
-    // 1) Create placeholder
+    // 1. Create a placeholder comment while AI processes the review
     commentId = await createPlaceholderComment(
       owner,
       repo,
@@ -179,23 +196,14 @@ export async function handleReviewAgent(context: PullRequestContext) {
       "🤖 AI Code Review in progress..."
     )
 
-    // 2) Generate review
+    // 2. Generate the review
     const analysis = await generateReview(context)
 
-    // 3) Update the comment
+    // 3. Update the comment with the AI-generated review data
     await updateCommentWithReview(owner, repo, commentId, await analysis)
 
-    // 4) Remove the "agent-review" label if it exists
-    try {
-      await octokit.issues.removeLabel({
-        owner,
-        repo,
-        issue_number: pullNumber,
-        name: REVIEW_LABEL
-      })
-    } catch (labelError) {
-      console.warn("Failed to remove review label:", labelError)
-    }
+    // 4. Remove the label so we don't re-run automatically
+    await removeLabel(owner, repo, pullNumber, REVIEW_LABEL)
   } catch (err) {
     console.error("Error in handleReviewAgent:", err)
     if (typeof commentId !== "undefined") {
