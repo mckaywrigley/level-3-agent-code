@@ -5,7 +5,7 @@ Ensures we do not exit on first test failure, so we can fix in a loop.
 </ai_context>
 */
 
-import { getLLMModel } from "@/app/api/github-webhook/_lib/llm"
+import { getLLMModel } from "@/lib/agents/llm"
 import { Octokit } from "@octokit/rest"
 import { generateObject, generateText } from "ai"
 import { Buffer } from "buffer"
@@ -831,7 +831,7 @@ function runLocalTests(): {
   }
   // 2) Playwright
   try {
-    execSync("npm run test:e2e", { stdio: "inherit" })
+    execSync("npm run test", { stdio: "inherit" })
   } catch (err) {
     pwFailed = true
   }

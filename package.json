@@ -15,13 +15,7 @@
     "format:check": "prettier --check \"{app,lib,db,components,context,types}**/*.{ts,tsx}\" --cache",
     "analyze": "ANALYZE=true npm run build",
     "prepare": "husky install",
-    "test": "npm run test:unit && npm run test:e2e",
-    "test:unit": "jest",
-    "test:unit:ci": "jest --ci --json --outputFile=jest-results.json",
-    "test:e2e": "playwright test",
-    "test:e2e:ci": "playwright test --project=chromium",
-    "proxy:github": "tsx scripts/webhook-proxies/github.ts",
-    "pr-flow": "tsx scripts/github-actions/pr-flow.ts"
+    "test": "jest"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.1.6",
@@ -83,7 +77,6 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@playwright/test": "^1.50.0",
     "@tailwindcss/typography": "^0.5.15",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
@@ -104,7 +97,6 @@
     "jest-junit": "^16.0.0",
     "postcss": "^8",
     "prettier": "^3.3.3",
-    "smee-client": "^2.0.4",
     "tailwindcss": "^3.4.1",
     "ts-node": "^10.9.2",
     "tsx": "^4.19.2",

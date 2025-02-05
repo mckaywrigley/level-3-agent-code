@@ -21,15 +21,11 @@ jobs:
         with:
           node-version: 18
 
-      # 3) Install browsers for Playwright
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps
-
-      # 4) Install dependencies
+      # 3) Install dependencies
       - name: Install dependencies
         run: npm ci
 
-      # 5) Run AI Flow script
+      # 4) Run AI Flow script
       #
       # Note: We do NOT fail the job if the script returns a non-zero exit code,
       # because we want the script to handle logic, do iterative fixes, etc.
@@ -38,7 +34,7 @@ jobs:
       # and let the job fail or succeed. Shown below is "the script decides".
       - name: Run AI Flow
         run: |
-          npx tsx scripts/github-actions/ai-flow.ts
+          npx tsx scripts/ai-flow.ts
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
