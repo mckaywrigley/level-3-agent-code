@@ -836,21 +836,6 @@ async function updateComment(
   })
 }
 
-async function postComment(
-  octokit: Octokit,
-  owner: string,
-  repo: string,
-  issueNumber: number,
-  body: string
-) {
-  await octokit.issues.createComment({
-    owner,
-    repo,
-    issue_number: issueNumber,
-    body
-  })
-}
-
 /***************************************************************
  * runFlow()
  ***************************************************************/
