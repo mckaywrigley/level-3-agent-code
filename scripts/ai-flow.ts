@@ -10,7 +10,8 @@
  *    3. Runs an AI-based code review.
  *    4. Runs AI-based test generation if needed.
  *    5. Executes tests locally (on the GitHub runner).
- *    6. If tests fail, attempts iterative fixes up to 3 times.
+ *    6. If tests fail, attempts iterative fixes up to 3 times,
+ *       passing the error output back to the AI each time.
  *    7. Comments results back on the PR.
  *
  * Libraries Used:
@@ -88,39 +89,33 @@ async function runFlow() {
   const baseContext = await buildPRContext(octokit, owner, repo, prNumber)
 
   // 6) AI code review step
-  //    This posts an initial placeholder comment on the PR (like "in progress...")
-  //    Then generates the code review using AI, and updates that comment
-  //    with the final analysis.
   console.log("=== AI Code Review ===")
   const reviewAnalysis = await handleReviewAgent(octokit, baseContext)
 
   // 7) AI test generation step
-  //    We build an extended context (including existing test files)
-  //    and decide whether or not to generate new tests (the "gating" step).
-  //    If we do, we commit them to the PR branch and comment about the results.
   console.log("=== AI Test Generation ===")
   const testContext = await buildTestContext(octokit, baseContext)
   await handleTestGeneration(octokit, testContext, reviewAnalysis)
 
-  // 8) Run tests locally (on the GitHub Actions runner). If tests fail,
-  //    we attempt iterative fixes.
+  // 8) Run tests locally (on the GitHub Actions runner).
   console.log("=== Running local tests ===")
   let testResult = runLocalTests()
 
-  // 9) Iterative fix attempts - up to 3 times. Each iteration tries to fix
-  //    failing tests or add missing coverage, commits changes, and re-runs tests.
+  // 9) Iterative fix attempts - up to 3 times.
   let iteration = 0
   const maxIterations = 3
-  while (!testResult.jestFailed && iteration < maxIterations) {
+
+  // IMPORTANT FIX: We loop while tests fail (instead of while tests pass).
+  while (testResult.jestFailed && iteration < maxIterations) {
     iteration++
     console.log(`\n=== Attempting AI Test Fix #${iteration} ===`)
-    await handleTestFix(octokit, testContext, iteration)
+    // Pass the error logs to the fix function so the AI sees the actual failure
+    await handleTestFix(octokit, testContext, iteration, testResult.output)
+    // Re-run tests after the fix attempt
     testResult = runLocalTests()
   }
 
-  // 10) Final result:
-  //    - If tests eventually pass, we comment success and exit with code 0.
-  //    - Otherwise, after 3 tries, we give up and fail the job with code 1.
+  // 10) Final result
   if (!testResult.jestFailed) {
     console.log("All tests passing after AI generation/fixes!")
     await postComment(
@@ -500,9 +495,6 @@ async function buildTestContext(
  *
  * Recursively fetches every file from the "__tests__" directory
  * (and its subfolders) at a given ref (branch).
- *
- * This helps the AI see existing testing patterns (like if you
- * already have test files, or what libraries you use).
  */
 async function getAllTestFiles(
   octokit: Octokit,
@@ -530,7 +522,7 @@ async function getAllTestFiles(
             })
           }
         } else if (item.type === "dir") {
-          // If it's a directory, recurse down that path
+          // Recurse subfolders
           const sub = await getAllTestFiles(
             octokit,
             owner,
@@ -839,7 +831,7 @@ async function parseTestXml(
  * finalizeFileExtension
  *
  * If the code changed is React-based, we ensure the test file ends with .test.tsx.
- * Otherwise, we ensure it ends with .test.ts. This helps keep consistent naming.
+ * Otherwise, we ensure it ends with .test.ts.
  */
 function finalizeFileExtension(
   filename: string,
@@ -869,11 +861,7 @@ function finalizeFileExtension(
  * commitTests
  *
  * Takes the generated test proposals and commits them directly
- * to the existing PR branch. (We rely on the "contents: write"
- * permission in our GitHub Action for this.)
- *
- * It handles scenarios where the AI wants to rename an old file,
- * or update an existing file, or create a new one.
+ * to the existing PR branch.
  */
 async function commitTests(
   octokit: Octokit,
@@ -934,7 +922,7 @@ async function commitTests(
         })
       }
     } catch (error: any) {
-      // If 404, we create a new file
+      // If 404, create a new file
       if (error.status === 404) {
         await octokit.repos.createOrUpdateFileContents({
           owner,
@@ -983,18 +971,20 @@ async function updateCommentWithResults(
  * 3) Committing them
  * 4) Commenting results back to the PR
  */
-async function handleTestFix(
+export async function handleTestFix(
   octokit: Octokit,
   context: PullRequestContextWithTests,
-  iteration: number
+  iteration: number,
+  testErrorOutput?: string
 ) {
   const placeholderId = await createComment(
     octokit,
     context,
     `🧪 AI Test Fix #${iteration} in progress...`
   )
-  // We can pass a simple prompt to the AI to fix tests based on errors
-  const fixPrompt = `We have failing tests. Attempt #${iteration}. Please fix existing or create new ones.`
+  // Provide the actual Jest error logs so the AI knows what happened
+  const fixPrompt = `We have failing tests (attempt #${iteration}). Here is the error output:\n\n${testErrorOutput}\n\nPlease fix or create new tests as needed.`
+
   const proposals = await generateTestsForChanges(context, fixPrompt)
   if (proposals.length) {
     console.log("Fix proposals found, committing them...")
@@ -1020,21 +1010,27 @@ async function handleTestFix(
  * runLocalTests
  *
  * We run "npm run test" on the GitHub Actions runner. If the tests
- * fail, we catch that error and mark jestFailed = true.
+ * fail, we capture the error output so it can be passed to the AI
+ * for a fix attempt.
  */
 function runLocalTests(): {
   jestFailed: boolean
+  output: string
 } {
   let jestFailed = false
+  let output = ""
+
   try {
-    // "execSync" runs the command synchronously and
-    // pipes the output to the GitHub Actions log
-    execSync("npm run test", { stdio: "inherit" })
-  } catch (err) {
+    // Capture stdout so we can pass it to the AI if it fails
+    output = execSync("npm run test", { encoding: "utf8" })
+  } catch (err: any) {
     jestFailed = true
+    // Try to grab whatever output we can from the error
+    output = err.stdout || err.message || "Unknown error"
   }
+
   console.log(`Jest failed? ${jestFailed}`)
-  return { jestFailed }
+  return { jestFailed, output }
 }
 
 // --------------------------------------------------------------------------
