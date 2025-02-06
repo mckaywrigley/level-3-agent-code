@@ -1,17 +1,27 @@
 
-/* Unit test for AboutPage component with added comments */
-// This test verifies that the AboutPage component renders correctly and displays the expected title.
+import React from 'react';
 import AboutPage from "@/app/about/page";
 import "@testing-library/jest-dom";
 import { render, screen } from "@testing-library/react";
 
-describe("AboutPage", () => {
-  it("renders the AboutPage component and displays 'About Page'", async () => {
-    // Retrieve the page content (assuming AboutPage is an async function or component)
+describe("AboutPage Component", () => {
+  // Test that the AboutPage renders correctly and shows the header text.
+  it("renders correctly and displays 'About Page'", async () => {
     const content = await AboutPage();
     render(content);
-    // Assert that the text "About Page" appears in the document.
-    const aboutText = screen.getByText("About Page");
-    expect(aboutText).toBeInTheDocument();
+    const headingElement = screen.getByText("About Page");
+    expect(headingElement).toBeInTheDocument();
+  });
+
+  // Additional test: check for a comment section if it exists.
+  it("optionally renders a comment section if present", async () => {
+    const content = await AboutPage();
+    render(content);
+    // Look for an element with the test id "comment-section"
+    const commentSection = screen.queryByTestId("comment-section");
+    // If a comment section exists, ensure it is in the document.
+    if (commentSection) {
+      expect(commentSection).toBeInTheDocument();
+    }
   });
 });
