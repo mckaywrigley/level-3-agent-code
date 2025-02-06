@@ -9,6 +9,8 @@
 
 import { generateObject } from "ai"
 import { Buffer } from "buffer"
+import fs from "fs"
+import path from "path"
 import { z } from "zod"
 import { ReviewAnalysis } from "./code-review"
 import { updateComment } from "./github-comments"
@@ -210,6 +212,14 @@ function finalizeTestProposals(
  * - We also handle "rename" actions by deleting the old file.
  * - This is where we actually push commits back to GitHub using Octokit.
  */
+/**
+ * Commits test files to both GitHub repository and local filesystem
+ * @param octokit - GitHub API client
+ * @param owner - Repository owner
+ * @param repo - Repository name
+ * @param branch - Target branch name
+ * @param proposals - Array of test proposals to commit
+ */
 async function commitTests(
   octokit: any,
   owner: string,
@@ -218,7 +228,7 @@ async function commitTests(
   proposals: TestProposal[]
 ) {
   for (const p of proposals) {
-    // If action is rename, we remove the old file
+    // Handle file renames by deleting the old file first
     if (
       p.actions?.action === "rename" &&
       p.actions.oldFilename &&
@@ -242,15 +252,16 @@ async function commitTests(
           })
         }
       } catch (err: any) {
+        // Ignore 404 errors if old file doesn't exist
         if (err.status !== 404) throw err
       }
     }
 
-    // Encode the new or updated file content
+    // Encode file content to base64 for GitHub API
     const encoded = Buffer.from(p.testContent, "utf8").toString("base64")
 
-    // Try to fetch the file to see if it already exists
     try {
+      // Try to get existing file to update it
       const { data: existingFile } = await octokit.repos.getContent({
         owner,
         repo,
@@ -258,7 +269,7 @@ async function commitTests(
         ref: branch
       })
 
-      // If we find it, we update it
+      // Update existing file if found
       if ("sha" in existingFile) {
         await octokit.repos.createOrUpdateFileContents({
           owner,
@@ -271,7 +282,7 @@ async function commitTests(
         })
       }
     } catch (error: any) {
-      // If we get 404, it means the file doesn't exist, so we create it
+      // Create new file if 404 (doesn't exist)
       if (error.status === 404) {
         await octokit.repos.createOrUpdateFileContents({
           owner,
@@ -285,5 +296,10 @@ async function commitTests(
         throw error
       }
     }
+
+    // Write file to local filesystem as well
+    const localPath = path.join(process.cwd(), p.filename)
+    fs.mkdirSync(path.dirname(localPath), { recursive: true })
+    fs.writeFileSync(localPath, p.testContent, "utf-8")
   }
 }
