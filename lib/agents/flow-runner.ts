@@ -91,20 +91,24 @@ export async function runFlow() {
     testBody,
     reviewAnalysis
   )
-  if (!gating.shouldGenerate) {
-    // If gating says we don't need tests, end the process gracefully.
-    process.exit(0)
-  }
 
-  // If gating says we should proceed, we handle test generation
-  testBody = gating.testBody
-  await handleTestGeneration(
-    octokit,
-    testContext,
-    reviewAnalysis,
-    testCommentId,
-    testBody
-  )
+  // If gating says we don't need tests, do not generate tests and skip to running tests
+  if (!gating.shouldGenerate) {
+    testBody = gating.testBody
+    testBody +=
+      "\n\nSkipping test generation as existing tests are sufficient. Running tests..."
+    await updateComment(octokit, baseContext, testCommentId, testBody)
+  } else {
+    // If gating says we should proceed, we handle test generation
+    testBody = gating.testBody
+    await handleTestGeneration(
+      octokit,
+      testContext,
+      reviewAnalysis,
+      testCommentId,
+      testBody
+    )
+  }
 
   // Step 7: After generating tests, we run them locally to see if they pass.
   let testResult = runLocalTests()

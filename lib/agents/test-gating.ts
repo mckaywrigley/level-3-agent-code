@@ -82,7 +82,9 @@ async function gatingStepLogic(
 
   // We want the LLM to respond with structured JSON telling us if we should generate tests
   const prompt = `
-You are an expert in deciding if tests are needed. Return JSON only:
+You are an expert in deciding if tests are needed.
+
+Return JSON only:
 {
   "decision": {
     "shouldGenerateTests": true or false,
