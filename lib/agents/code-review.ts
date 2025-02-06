@@ -110,9 +110,9 @@ ${context.commitMessages.map(m => `- ${m}`).join("\n")}
 Changed Files:
 ${changedFilesPrompt}
 `
-  console.log(`\n\n\n---`)
+  console.log(`\n\n\n\n\n--------------------------------`)
   console.log(`Review prompt:\n${prompt}`)
-  console.log(`\n\n\n---`)
+  console.log(`--------------------------------\n\n\n\n\n`)
 
   // Obtain the configured LLM model (OpenAI or Anthropic, etc.)
   const modelInfo = getLLMModel()
@@ -126,6 +126,9 @@ ${changedFilesPrompt}
       schemaDescription: "Code review feedback in JSON",
       prompt
     })
+    console.log(`\n\n\n\n\n--------------------------------`)
+    console.log(`Review result:\n${JSON.stringify(result.object, null, 2)}`)
+    console.log(`--------------------------------\n\n\n\n\n`)
     return result.object
   } catch (err) {
     // If there's an error or the LLM's JSON wasn't valid, return a fallback.
