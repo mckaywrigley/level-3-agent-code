@@ -7,5 +7,5 @@ This server page shows a basic home page.
 "use server"
 
 export default async function AboutPage() {
-  return <div>This is theAbout Page</div>
+  return <div>This is the About Page</div>
 }
