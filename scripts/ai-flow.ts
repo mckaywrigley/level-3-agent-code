@@ -49,16 +49,14 @@ if (!githubToken) {
  * }
  */
 const reviewSchema = z.object({
-  summary: z.string().default(""),
-  fileAnalyses: z
-    .array(
-      z.object({
-        path: z.string().default(""),
-        analysis: z.string().default("")
-      })
-    )
-    .default([]),
-  overallSuggestions: z.array(z.string()).default([])
+  summary: z.string(),
+  fileAnalyses: z.array(
+    z.object({
+      path: z.string(),
+      analysis: z.string()
+    })
+  ),
+  overallSuggestions: z.array(z.string())
 })
 export type ReviewAnalysis = z.infer<typeof reviewSchema>
 
