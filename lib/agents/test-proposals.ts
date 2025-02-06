@@ -1,3 +1,12 @@
+/**
+ * This file handles the creation or update of tests based on the PR changes.
+ *
+ * Steps:
+ *  1) We combine the changed files, existing tests, and any additional context (like code review).
+ *  2) We prompt the LLM to propose new or updated tests in a strict JSON schema.
+ *  3) We parse that schema, then commit the test changes to the PR branch on GitHub.
+ */
+
 import { generateObject } from "ai"
 import { Buffer } from "buffer"
 import { z } from "zod"
@@ -6,6 +15,7 @@ import { updateComment } from "./github-comments"
 import { getLLMModel } from "./llm"
 import { PullRequestContextWithTests } from "./pr-context"
 
+// The shape of the test proposals we expect from the LLM
 const testProposalsSchema = z.object({
   testProposals: z.array(
     z.object({
@@ -19,6 +29,7 @@ const testProposalsSchema = z.object({
   )
 })
 
+// We define the TypeScript interface for convenience
 export interface TestProposal {
   filename: string
   testContent: string
@@ -28,6 +39,13 @@ export interface TestProposal {
   }
 }
 
+/**
+ * handleTestGeneration:
+ * - Posts a status update comment about generating tests.
+ * - Calls generateTestsForChanges to produce new or updated test files from the LLM.
+ * - Then commits those changes to the PR branch with commitTests.
+ * - Finally updates the comment with the list of newly created/updated test files.
+ */
 export async function handleTestGeneration(
   octokit: any,
   context: PullRequestContextWithTests,
@@ -43,8 +61,11 @@ export async function handleTestGeneration(
     recommendation = `Review Analysis:\n${reviewAnalysis.summary}`
   }
 
+  // We get an array of test proposals from the AI
   const proposals = await generateTestsForChanges(context, recommendation)
+
   if (proposals.length > 0) {
+    // We commit each test file creation/update
     await commitTests(
       octokit,
       context.owner,
@@ -59,9 +80,18 @@ export async function handleTestGeneration(
   } else {
     testBody += "\n\nNo new test proposals from AI."
   }
+
+  // Update the comment on GitHub
   await updateComment(octokit, context, testCommentId, testBody)
 }
 
+/**
+ * generateTestsForChanges:
+ * - Builds a combined prompt detailing changed files and any existing tests.
+ * - Asks the LLM to produce JSON describing proposed test changes.
+ * - Uses the testProposalsSchema to parse the LLM response.
+ * - Then calls finalizeTestProposals to handle naming conventions (e.g. .test.ts vs .test.tsx).
+ */
 async function generateTestsForChanges(
   context: PullRequestContextWithTests,
   recommendation: string
@@ -77,6 +107,7 @@ async function generateTestsForChanges(
     })
     .join("\n---\n")
 
+  // The LLM prompt: includes the code changes, existing tests, and any recommended improvements from code review
   const prompt = `
 You are an expert developer specializing in test generation.
 
@@ -107,6 +138,7 @@ ${existingTestsPrompt}
 `
   const modelInfo = getLLMModel()
   try {
+    // Attempt to parse the LLM's JSON into our schema
     const result = await generateObject({
       model: modelInfo,
       schema: testProposalsSchema,
@@ -114,17 +146,25 @@ ${existingTestsPrompt}
       schemaDescription: "Proposed test files in JSON",
       prompt
     })
+
     return finalizeTestProposals(result.object.testProposals, context)
   } catch (err) {
+    // If there's a parse error, we return an empty array (meaning no proposals)
     return []
   }
 }
 
+/**
+ * finalizeTestProposals:
+ * - Adjusts test file naming or paths to ensure they adhere to typical patterns (e.g. .test.tsx for React).
+ * - Ensures tests end up under __tests__/unit/ if not specified.
+ */
 function finalizeTestProposals(
   rawProposals: TestProposal[],
   context: PullRequestContextWithTests
 ): TestProposal[] {
   return rawProposals.map(proposal => {
+    // Decide if it's a React-based test. If any changed file is .tsx or references React, we assume yes.
     const isReact = context.changedFiles.some(file => {
       if (!file.content) return false
       return (
@@ -134,19 +174,31 @@ function finalizeTestProposals(
         file.filename.includes("app/")
       )
     })
+
     let newFilename = proposal.filename
+
+    // Enforce the .test.tsx or .test.ts extension
     if (isReact && !newFilename.endsWith(".test.tsx")) {
       newFilename = newFilename.replace(/\.test\.ts$/, ".test.tsx")
     } else if (!isReact && !newFilename.endsWith(".test.ts")) {
       newFilename = newFilename.replace(/\.test\.tsx$/, ".test.ts")
     }
+
+    // Ensure the file is placed in __tests__/unit if not already
     if (!newFilename.includes("__tests__/unit")) {
       newFilename = `__tests__/unit/${newFilename}`
     }
+
     return { ...proposal, filename: newFilename }
   })
 }
 
+/**
+ * commitTests:
+ * - For each test proposal, we either create or update the file in the PR branch.
+ * - We also handle "rename" actions by deleting the old file.
+ * - This is where we actually push commits back to GitHub using Octokit.
+ */
 async function commitTests(
   octokit: any,
   owner: string,
@@ -155,6 +207,7 @@ async function commitTests(
   proposals: TestProposal[]
 ) {
   for (const p of proposals) {
+    // If action is rename, we remove the old file
     if (
       p.actions?.action === "rename" &&
       p.actions.oldFilename &&
@@ -182,7 +235,10 @@ async function commitTests(
       }
     }
 
+    // Encode the new or updated file content
     const encoded = Buffer.from(p.testContent, "utf8").toString("base64")
+
+    // Try to fetch the file to see if it already exists
     try {
       const { data: existingFile } = await octokit.repos.getContent({
         owner,
@@ -190,6 +246,8 @@ async function commitTests(
         path: p.filename,
         ref: branch
       })
+
+      // If we find it, we update it
       if ("sha" in existingFile) {
         await octokit.repos.createOrUpdateFileContents({
           owner,
@@ -202,6 +260,7 @@ async function commitTests(
         })
       }
     } catch (error: any) {
+      // If we get 404, it means the file doesn't exist, so we create it
       if (error.status === 404) {
         await octokit.repos.createOrUpdateFileContents({
           owner,
