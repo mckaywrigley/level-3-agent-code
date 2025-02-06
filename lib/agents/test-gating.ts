@@ -108,7 +108,9 @@ Existing Tests:
 ${existingTestsPrompt}
 ${combinedRec}
 `
+  console.log(`\n\n\n---`)
   console.log(`Gating prompt:\n${prompt}`)
+  console.log(`\n\n\n---`)
   const model = getLLMModel()
 
   try {

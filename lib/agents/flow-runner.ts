@@ -36,7 +36,7 @@ export async function runFlow() {
 
   const eventPath = process.env.GITHUB_EVENT_PATH
   if (!eventPath) {
-    console.log("No GITHUB_EVENT_PATH found. Not in GitHub Actions? Exiting.")
+    console.error("No GITHUB_EVENT_PATH found. Not in GitHub Actions? Exiting.")
     return
   }
 
@@ -44,14 +44,14 @@ export async function runFlow() {
   const eventData = JSON.parse(fs.readFileSync(eventPath, "utf8"))
   const pullRequest = eventData.pull_request
   if (!pullRequest) {
-    console.log("Not a pull_request event. Exiting.")
+    console.error("Not a pull_request event. Exiting.")
     return
   }
 
   // GITHUB_REPOSITORY is typically "owner/repo", e.g. "my-org/my-repo"
   const repoStr = process.env.GITHUB_REPOSITORY
   if (!repoStr) {
-    console.log("No GITHUB_REPOSITORY found. Exiting.")
+    console.error("No GITHUB_REPOSITORY found. Exiting.")
     return
   }
 
