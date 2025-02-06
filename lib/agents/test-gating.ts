@@ -84,6 +84,12 @@ async function gatingStepLogic(
   const prompt = `
 You are an expert in deciding if tests are needed.
 
+If you see *anything* new that should be tested or that breaks any existing tests, you should return true. Be thorough in your analysis.
+
+You only generate tests for frontend related code in the /app directory.
+
+You only generate unit tests in the __tests__/unit directory.
+
 Return JSON only:
 {
   "decision": {
@@ -102,7 +108,9 @@ Existing Tests:
 ${existingTestsPrompt}
 ${combinedRec}
 `
+  console.log(`\n\n\n---`)
   console.log(`Gating prompt:\n${prompt}`)
+  console.log(`\n\n\n---`)
   const model = getLLMModel()
 
   try {

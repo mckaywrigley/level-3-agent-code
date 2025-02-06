@@ -140,7 +140,9 @@ ${changedFilesPrompt}
 Existing Tests:
 ${existingTestsPrompt}
 `
+  console.log(`\n\n\n---`)
   console.log(`Test proposals prompt:\n${prompt}`)
+  console.log(`\n\n\n---`)
   const modelInfo = getLLMModel()
   try {
     // Attempt to parse the LLM's JSON into our schema
