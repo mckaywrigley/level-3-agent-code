@@ -42,6 +42,21 @@ jobs:
       pull-requests: write
 
     steps:
+      # --------------------------------------------
+      # 0) Immediately post a comment on the PR
+      #    letting users know the agent is spinning up.
+      # --------------------------------------------
+      - name: Post early "Agent starting" comment
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "Creating an immediate placeholder comment..."
+          curl -s \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            -d '{"body":"⚙️ AI Agent is starting up. We’ll be back soon with a code review and test generation!"}' \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
+
       # ----------------------------------------------------------
       # 1) Check out the repository code.
       # This uses the official "actions/checkout" action, which
