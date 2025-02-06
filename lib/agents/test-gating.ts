@@ -108,9 +108,9 @@ Existing Tests:
 ${existingTestsPrompt}
 ${combinedRec}
 `
-  console.log(`\n\n\n---`)
+  console.log(`\n\n\n\n\n--------------------------------`)
   console.log(`Gating prompt:\n${prompt}`)
-  console.log(`\n\n\n---`)
+  console.log(`--------------------------------\n\n\n\n\n`)
   const model = getLLMModel()
 
   try {
@@ -121,6 +121,9 @@ ${combinedRec}
       schemaDescription: "Decision for test generation",
       prompt
     })
+    console.log(`\n\n\n\n\n--------------------------------`)
+    console.log(`Gating result:\n${JSON.stringify(result.object, null, 2)}`)
+    console.log(`--------------------------------\n\n\n\n\n`)
     return {
       shouldGenerate: result.object.decision.shouldGenerateTests,
       reason: result.object.decision.reasoning,

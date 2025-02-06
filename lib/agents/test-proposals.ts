@@ -140,9 +140,9 @@ ${changedFilesPrompt}
 Existing Tests:
 ${existingTestsPrompt}
 `
-  console.log(`\n\n\n---`)
+  console.log(`\n\n\n\n\n--------------------------------`)
   console.log(`Test proposals prompt:\n${prompt}`)
-  console.log(`\n\n\n---`)
+  console.log(`--------------------------------\n\n\n\n\n`)
   const modelInfo = getLLMModel()
   try {
     // Attempt to parse the LLM's JSON into our schema
@@ -153,7 +153,11 @@ ${existingTestsPrompt}
       schemaDescription: "Proposed test files in JSON",
       prompt
     })
-
+    console.log(`\n\n\n\n\n--------------------------------`)
+    console.log(
+      `Test proposals result:\n${JSON.stringify(result.object, null, 2)}`
+    )
+    console.log(`--------------------------------\n\n\n\n\n`)
     return finalizeTestProposals(result.object.testProposals, context)
   } catch (err) {
     // If there's a parse error, we return an empty array (meaning no proposals)
