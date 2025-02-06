@@ -100,6 +100,7 @@ Existing Tests:
 ${existingTestsPrompt}
 ${combinedRec}
 `
+  console.log(`Gating prompt:\n${prompt}`)
   const model = getLLMModel()
 
   try {

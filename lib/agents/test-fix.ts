@@ -29,6 +29,7 @@ ${testErrorOutput}
 
 Please fix or create new tests as needed, returning JSON in the same format.
 `
+  console.log(`Test fix prompt:\n${fixPrompt}`)
 
   // Under the hood, handleTestGeneration will commit the newly proposed test changes
   await handleTestGeneration(

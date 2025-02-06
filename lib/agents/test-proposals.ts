@@ -111,6 +111,8 @@ async function generateTestsForChanges(
   const prompt = `
 You are an expert developer specializing in test generation.
 
+You only generate unit tests in the __tests__/unit directory.
+
 Return only valid JSON matching this structure:
 {
   "testProposals": [
@@ -136,6 +138,7 @@ ${changedFilesPrompt}
 Existing Tests:
 ${existingTestsPrompt}
 `
+  console.log(`Test proposals prompt:\n${prompt}`)
   const modelInfo = getLLMModel()
   try {
     // Attempt to parse the LLM's JSON into our schema

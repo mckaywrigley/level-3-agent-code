@@ -110,6 +110,7 @@ ${context.commitMessages.map(m => `- ${m}`).join("\n")}
 Changed Files:
 ${changedFilesPrompt}
 `
+  console.log(`Review prompt:\n${prompt}`)
 
   // Obtain the configured LLM model (OpenAI or Anthropic, etc.)
   const modelInfo = getLLMModel()
