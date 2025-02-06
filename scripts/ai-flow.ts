@@ -1,35 +1,133 @@
+/***************************************************************
+ * AI Flow Script (ai-flow.ts)
+ *
+ * Purpose:
+ *  - This script is designed to run as part of the GitHub
+ *    Actions workflow (described above in ai-agent.yml).
+ *  - It does the following:
+ *    1. Checks if we're dealing with a pull request (PR) event.
+ *    2. Gathers PR context (files changed, commit messages, etc.).
+ *    3. Runs an AI-based code review (JSON output).
+ *    4. Runs AI-based test generation if needed (JSON output).
+ *    5. Executes tests locally (on the GitHub runner).
+ *    6. If tests fail, attempts iterative fixes up to 3 times,
+ *       passing the error output back to the AI each time.
+ *    7. Comments results back on the PR.
+ *
+ * Key Points:
+ *  - We now request **strict JSON** from the LLM instead of XML.
+ *  - We use Zod schemas + `generateObject` to parse the AI’s output.
+ ***************************************************************/
 import { getLLMModel } from "@/lib/agents/llm"
 import { Octokit } from "@octokit/rest"
-import { generateObject, generateText } from "ai"
+import { generateObject } from "ai"
 import { Buffer } from "buffer"
 import { execSync } from "child_process"
 import * as fs from "fs"
-import { parseStringPromise } from "xml2js"
-import { z } from "zod"
+import { z } from "zod" // We rely on Zod for JSON validation
 
-// Read environment
 const githubToken = process.env.GITHUB_TOKEN
-
 if (!githubToken) {
   console.error("Missing GITHUB_TOKEN - cannot proceed.")
   process.exit(1)
 }
 
+/***************************************************************
+ * ZOD SCHEMAS
+ * We define one for each piece of AI output: review, gating, tests.
+ ***************************************************************/
+
+/**
+ * Code Review Schema
+ * Example JSON:
+ * {
+ *   "summary": "Short summary",
+ *   "fileAnalyses": [
+ *     { "path": "some-file.ts", "analysis": "Analysis text" }
+ *   ],
+ *   "overallSuggestions": ["Add more doc", "Refactor method"]
+ * }
+ */
+const reviewSchema = z.object({
+  summary: z.string(),
+  fileAnalyses: z.array(
+    z.object({
+      path: z.string(),
+      analysis: z.string()
+    })
+  ),
+  overallSuggestions: z.array(z.string())
+})
+export type ReviewAnalysis = z.infer<typeof reviewSchema>
+
+/**
+ * Gating Schema
+ * Example JSON:
+ * {
+ *   "decision": {
+ *     "shouldGenerateTests": true,
+ *     "reasoning": "...",
+ *     "recommendation": "..."
+ *   }
+ * }
+ */
+const gatingSchema = z.object({
+  decision: z.object({
+    shouldGenerateTests: z.boolean(),
+    reasoning: z.string(),
+    recommendation: z.string()
+  })
+})
+
+/**
+ * Test Proposals Schema
+ * Example JSON:
+ * {
+ *   "testProposals": [
+ *     {
+ *       "filename": "__tests__/unit/some.test.tsx",
+ *       "testContent": "...entire test file code...",
+ *       "actions": {
+ *         "action": "create",
+ *         "oldFilename": "..."
+ *       }
+ *     }
+ *   ]
+ * }
+ */
+const testProposalsSchema = z.object({
+  testProposals: z.array(
+    z.object({
+      filename: z.string(),
+      testContent: z.string(),
+      actions: z.object({
+        action: z.enum(["create", "update", "rename"]),
+        oldFilename: z.string()
+      })
+    })
+  )
+})
+
+/***************************************************************
+ * MAIN FLOW
+ ***************************************************************/
 async function runFlow() {
-  // 1) Check if this is actually a PR event
+  // 1) Check if this is a PR event
   const eventPath = process.env.GITHUB_EVENT_PATH
   if (!eventPath) {
     console.log("No GITHUB_EVENT_PATH found. Not in GitHub Actions? Exiting.")
     return
   }
 
-  // 2) Parse the event to find the pull request
+  // 2) Parse the event JSON to see if it includes a pull_request object
   const eventData = JSON.parse(fs.readFileSync(eventPath, "utf8"))
   const pullRequest = eventData.pull_request
   if (!pullRequest) {
     console.log("Not a pull_request event. Exiting.")
     return
   }
+
+  // 3) Identify the owner/repo from env vars
   const repoStr = process.env.GITHUB_REPOSITORY
   if (!repoStr) {
     console.log("No GITHUB_REPOSITORY found. Exiting.")
@@ -39,36 +137,37 @@ async function runFlow() {
   const prNumber = pullRequest.number
   console.log(`Handling PR #${prNumber} on ${owner}/${repo}`)
 
-  // 3) Construct an authenticated client
+  // 4) Auth Octokit
   const octokit = new Octokit({ auth: githubToken })
 
-  // 4) Gather PR context
+  // 5) Gather PR context
   const baseContext = await buildPRContext(octokit, owner, repo, prNumber)
 
-  // 5) AI code review
+  // 6) AI code review
   console.log("=== AI Code Review ===")
   const reviewAnalysis = await handleReviewAgent(octokit, baseContext)
 
-  // 6) AI test generation
+  // 7) AI test generation
   console.log("=== AI Test Generation ===")
   const testContext = await buildTestContext(octokit, baseContext)
   await handleTestGeneration(octokit, testContext, reviewAnalysis)
 
-  // 7) Run tests
+  // 8) Run local tests
   console.log("=== Running local tests ===")
   let testResult = runLocalTests()
 
-  // 8) Iterative fix attempts
+  // 9) Up to 3 fix attempts if tests fail
   let iteration = 0
   const maxIterations = 3
-  while (!testResult.jestFailed && iteration < maxIterations) {
+  while (testResult.jestFailed && iteration < maxIterations) {
     iteration++
     console.log(`\n=== Attempting AI Test Fix #${iteration} ===`)
-    await handleTestFix(octokit, testContext, iteration)
+    // Provide the error logs so the AI sees the actual failure
+    await handleTestFix(octokit, testContext, iteration, testResult.output)
     testResult = runLocalTests()
   }
 
-  // 9) Final result
+  // 10) Final result
   if (!testResult.jestFailed) {
     console.log("All tests passing after AI generation/fixes!")
     await postComment(
@@ -78,7 +177,7 @@ async function runFlow() {
       prNumber,
       "✅ All tests passing after AI generation/fixes!"
     )
-    process.exit(0) // Succeed the job
+    process.exit(0)
   } else {
     console.log(`❌ Still failing after ${maxIterations} fix attempts.`)
     await postComment(
@@ -88,14 +187,13 @@ async function runFlow() {
       prNumber,
       `❌ Tests failing after ${maxIterations} fix attempts.`
     )
-    process.exit(1) // Mark the job as failed
+    process.exit(1)
   }
 }
 
-//
-//  PR CONTEXT
-//
-
+/***************************************************************
+ * TYPES & HELPERS
+ ***************************************************************/
 interface PullRequestContext {
   owner: string
   repo: string
@@ -126,7 +224,6 @@ async function buildPRContext(
     repo,
     pull_number: pullNumber
   })
-
   const filesRes = await octokit.pulls.listFiles({
     owner,
     repo,
@@ -149,7 +246,6 @@ async function buildPRContext(
       content: undefined as string | undefined,
       excluded: false
     }
-
     if (file.status !== "removed" && !shouldExcludeFile(file.filename)) {
       const content = await getFileContent(
         octokit,
@@ -195,12 +291,7 @@ async function getFileContent(
   ref: string
 ) {
   try {
-    const res = await octokit.repos.getContent({
-      owner,
-      repo,
-      path,
-      ref
-    })
+    const res = await octokit.repos.getContent({ owner, repo, path, ref })
     if ("content" in res.data && typeof res.data.content === "string") {
       return Buffer.from(res.data.content, "base64").toString("utf8")
     }
@@ -214,29 +305,20 @@ async function getFileContent(
   }
 }
 
-//
-// CODE REVIEW
-//
-
-interface ReviewAnalysis {
-  summary: string
-  fileAnalyses: Array<{ path: string; analysis: string }>
-  overallSuggestions: string[]
-}
-
+/***************************************************************
+ * CODE REVIEW
+ ***************************************************************/
 async function handleReviewAgent(
   octokit: Octokit,
   context: PullRequestContext
 ) {
-  // Create a placeholder comment so the user knows we're reviewing
   const placeholderId = await createComment(
     octokit,
     context,
     "🤖 AI Code Review in progress..."
   )
-  // Generate review
+
   const analysis = await generateReview(context)
-  // Update the placeholder with final results
   const body = `
 ### AI Code Review
 
@@ -257,101 +339,60 @@ ${analysis.overallSuggestions.map(s => `- ${s}`).join("\n")}
 async function generateReview(
   context: PullRequestContext
 ): Promise<ReviewAnalysis> {
-  console.log("Generating AI code review...")
+  console.log("Generating AI code review via JSON...")
 
   const changedFilesPrompt = context.changedFiles
-    .map(file => {
-      if (file.excluded) {
-        return `File: ${file.filename}\n[EXCLUDED FROM PROMPT]\n`
-      }
-      return `File: ${file.filename}\nPatch:\n${file.patch}\nContent:\n${file.content ?? ""}`
+    .map(f => {
+      if (f.excluded) return `File: ${f.filename} [EXCLUDED FROM PROMPT]`
+      return `File: ${f.filename}\nPatch:\n${f.patch}\nContent:\n${f.content ?? ""}`
     })
     .join("\n---\n")
 
+  // The LLM must return JSON matching reviewSchema exactly
   const prompt = `
-You are an expert code reviewer. Provide feedback on the following pull request changes.
+You are an expert code reviewer. Return valid JSON only, with the structure:
+{
+  "summary": "string",
+  "fileAnalyses": [
+    { "path": "string", "analysis": "string" }
+  ],
+  "overallSuggestions": ["string"]
+}
 
+Do not add extra keys or text. 
+
+Context:
 PR Title: ${context.title}
-Commit Messages:
-${context.commitMessages.map(msg => `- ${msg}`).join("\n")}
+Commits:
+${context.commitMessages.map(m => `- ${m}`).join("\n")}
 Changed Files:
 ${changedFilesPrompt}
-
-Return ONLY valid XML:
-<review>
-  <summary>[short summary]</summary>
-  <fileAnalyses>
-    <file>
-      <path>[filename]</path>
-      <analysis>[analysis text]</analysis>
-    </file>
-  </fileAnalyses>
-  <overallSuggestions>
-    <suggestion>[bullet suggestion]</suggestion>
-  </overallSuggestions>
-</review>
 `
+
+  const modelInfo = getLLMModel()
   try {
-    const modelInfo = getLLMModel()
-    const { text } = await generateText({
+    const result = await generateObject({
       model: modelInfo,
+      schema: reviewSchema, // parse into our Zod schema
+      schemaName: "review",
+      schemaDescription: "Code review feedback in JSON",
       prompt
     })
-    return await parseReviewXml(text)
+    return result.object
   } catch (err) {
-    console.error("Error generating review:", err)
+    console.error("Error generating or parsing code review JSON:", err)
+    // Fallback if AI fails to parse
     return {
-      summary: "Failed to parse AI review.",
+      summary: "Review parse error",
       fileAnalyses: [],
       overallSuggestions: []
     }
   }
 }
 
-async function parseReviewXml(xmlText: string): Promise<ReviewAnalysis> {
-  const startTag = "<review>"
-  const endTag = "</review>"
-  const startIndex = xmlText.indexOf(startTag)
-  const endIndex = xmlText.indexOf(endTag) + endTag.length
-  if (startIndex === -1 || endIndex === -1) {
-    return {
-      summary: "Could not find <review> tags.",
-      fileAnalyses: [],
-      overallSuggestions: []
-    }
-  }
-  const xmlPortion = xmlText.slice(startIndex, endIndex)
-  const parsed = await parseStringPromise(xmlPortion)
-  const summary = parsed.review.summary?.[0] ?? ""
-  const fileAnalyses = []
-  const overallSuggestions = []
-
-  if (
-    parsed.review.fileAnalyses?.[0]?.file &&
-    Array.isArray(parsed.review.fileAnalyses[0].file)
-  ) {
-    for (const f of parsed.review.fileAnalyses[0].file) {
-      fileAnalyses.push({
-        path: f.path?.[0] || "",
-        analysis: f.analysis?.[0] || ""
-      })
-    }
-  }
-  if (
-    parsed.review.overallSuggestions?.[0]?.suggestion &&
-    Array.isArray(parsed.review.overallSuggestions[0].suggestion)
-  ) {
-    for (const s of parsed.review.overallSuggestions[0].suggestion) {
-      overallSuggestions.push(s)
-    }
-  }
-  return { summary, fileAnalyses, overallSuggestions }
-}
-
-//
-// TEST GENERATION
-//
-
+/***************************************************************
+ * TEST GENERATION
+ ***************************************************************/
 interface PullRequestContextWithTests extends PullRequestContext {
   existingTestFiles: {
     filename: string
@@ -392,13 +433,9 @@ async function getAllTestFiles(
         if (item.type === "file") {
           const c = await getFileContent(octokit, owner, repo, item.path, ref)
           if (c) {
-            results.push({
-              filename: item.path,
-              content: c
-            })
+            results.push({ filename: item.path, content: c })
           }
         } else if (item.type === "dir") {
-          // Recurse
           const sub = await getAllTestFiles(
             octokit,
             owner,
@@ -421,17 +458,13 @@ async function handleTestGeneration(
   context: PullRequestContextWithTests,
   reviewAnalysis?: ReviewAnalysis
 ) {
-  console.log("Creating placeholder comment for test gen...")
   const placeholderId = await createComment(
     octokit,
     context,
     "🧪 AI Test Generation in progress..."
   )
-
-  console.log("Running gating step...")
   const gating = await gatingStep(context)
   if (!gating.shouldGenerate) {
-    console.log("Skipping test generation:", gating.reason)
     await updateComment(
       octokit,
       context,
@@ -441,15 +474,14 @@ async function handleTestGeneration(
     return
   }
 
+  // Combine gating recommendation + review analysis
   let combinedRec = gating.recommendation
   if (reviewAnalysis) {
     combinedRec += `\nReview Analysis:\n${reviewAnalysis.summary}`
   }
 
-  console.log("Generating test proposals from AI...")
   const proposals = await generateTestsForChanges(context, combinedRec)
   if (proposals.length > 0) {
-    console.log("Committing proposals to PR branch...")
     await commitTests(
       octokit,
       context.owner,
@@ -459,37 +491,33 @@ async function handleTestGeneration(
     )
     await updateCommentWithResults(octokit, context, placeholderId, proposals)
   } else {
-    console.log("No proposals from AI.")
     await updateCommentWithResults(octokit, context, placeholderId, [])
   }
 }
 
-const gatingSchema = z.object({
-  decision: z.object({
-    shouldGenerateTests: z.boolean(),
-    reasoning: z.string(),
-    recommendation: z.string()
-  })
-})
-
+/***************************************************************
+ * GATING STEP
+ ***************************************************************/
 async function gatingStep(context: PullRequestContextWithTests) {
-  const modelInfo = getLLMModel()
-
   const existingTestsPrompt = context.existingTestFiles
     .map(f => `Existing test: ${f.filename}\n---\n${f.content}`)
     .join("\n")
   const changedFilesPrompt = context.changedFiles
     .map(file => {
-      if (file.excluded) {
-        return `File: ${file.filename} [EXCLUDED]`
-      }
+      if (file.excluded) return `File: ${file.filename} [EXCLUDED]`
       return `File: ${file.filename}\nPatch:\n${file.patch}\nContent:\n${file.content}`
     })
     .join("\n---\n")
 
   const prompt = `
-You are an expert in deciding if tests are needed.
-Return JSON only: {"decision":{"shouldGenerateTests":true or false,"reasoning":"some text","recommendation":"some text"}}
+You are an expert in deciding if tests are needed. Return JSON only:
+{
+  "decision": {
+    "shouldGenerateTests": true or false,
+    "reasoning": "string",
+    "recommendation": "string"
+  }
+}
 
 Title: ${context.title}
 Commits:
@@ -500,6 +528,7 @@ Existing Tests:
 ${existingTestsPrompt}
 `
 
+  const modelInfo = getLLMModel()
   try {
     const result = await generateObject({
       model: modelInfo,
@@ -511,7 +540,7 @@ ${existingTestsPrompt}
     return {
       shouldGenerate: result.object.decision.shouldGenerateTests,
       reason: result.object.decision.reasoning,
-      recommendation: result.object.decision.recommendation || ""
+      recommendation: result.object.decision.recommendation
     }
   } catch (err) {
     console.error("Error in gating step:", err)
@@ -519,17 +548,15 @@ ${existingTestsPrompt}
   }
 }
 
-//
-// TEST PROPOSALS
-//
-
+/***************************************************************
+ * GENERATING TESTS
+ ***************************************************************/
 interface TestProposal {
   filename: string
-  testType?: "unit" | "e2e"
   testContent: string
-  actions?: {
+  actions: {
     action: "create" | "update" | "rename"
-    oldFilename?: string
+    oldFilename: string
   }
 }
 
@@ -537,15 +564,12 @@ async function generateTestsForChanges(
   context: PullRequestContextWithTests,
   recommendation: string
 ): Promise<TestProposal[]> {
-  const modelInfo = getLLMModel()
   const existingTestsPrompt = context.existingTestFiles
     .map(f => `Existing test: ${f.filename}\n---\n${f.content}`)
     .join("\n")
   const changedFilesPrompt = context.changedFiles
     .map(file => {
-      if (file.excluded) {
-        return `File: ${file.filename} [EXCLUDED FROM PROMPT]`
-      }
+      if (file.excluded) return `File: ${file.filename} [EXCLUDED FROM PROMPT]`
       return `File: ${file.filename}\nPatch:\n${file.patch}\nContent:\n${file.content}`
     })
     .join("\n---\n")
@@ -553,37 +577,24 @@ async function generateTestsForChanges(
   const prompt = `
 You are an expert developer specializing in test generation.
 
+Return only valid JSON matching this structure:
+{
+  "testProposals": [
+    {
+      "filename": "string",
+      "testContent": "string",
+      "actions": {
+        "action": "create" or "update" or "rename",
+        "oldFilename": "string"
+      }
+    }
+  ]
+}
+
+Do not add any extra keys or text. 
+
 Recommendation:
 ${recommendation}
-
-We have:
-1) Unit tests in "__tests__/unit/"
-2) E2E tests in "__tests__/e2e/"
-
-Only generate tests for front-end code. Name them ".test.tsx" if React, otherwise ".test.ts".
-If an existing test file needs an update or rename, do so.
-
-Return ONLY valid XML:
-
-<tests>
-  <testProposals>
-    <proposal>
-      <filename>__tests__/unit/... .test.ts[x]</filename>
-      <testType>unit or e2e</testType>
-      <testContent><![CDATA[
-YOUR TEST CODE
-]]></testContent>
-      <actions>
-        <action>create|update|rename</action>
-        <oldFilename>optional old file</oldFilename>
-      </actions>
-    </proposal>
-  </testProposals>
-</tests>
-`
-
-  const fullPrompt = `
-${prompt}
 
 Title: ${context.title}
 Commits:
@@ -593,95 +604,66 @@ ${changedFilesPrompt}
 Existing Tests:
 ${existingTestsPrompt}
 `
+
+  const modelInfo = getLLMModel()
   try {
-    const { text } = await generateText({
+    const result = await generateObject({
       model: modelInfo,
-      prompt: fullPrompt
+      schema: testProposalsSchema,
+      schemaName: "testProposals",
+      schemaDescription: "Proposed test files in JSON",
+      prompt
     })
-    return await parseTestXml(text, context)
+    // result.object has shape { testProposals: TestProposal[] }
+    return finalizeTestProposals(result.object.testProposals, context)
   } catch (err) {
-    console.error("Error generating test proposals:", err)
+    console.error("Error generating or parsing test proposals JSON:", err)
     return []
   }
 }
 
-async function parseTestXml(
-  xmlText: string,
+/**
+ * finalizeTestProposals
+ * (Same logic as before for ensuring .test.ts vs. .test.tsx, etc.)
+ */
+function finalizeTestProposals(
+  rawProposals: TestProposal[],
   context: PullRequestContextWithTests
-) {
-  const startTag = "<tests>"
-  const endTag = "</tests>"
-  const startIndex = xmlText.indexOf(startTag)
-  const endIndex = xmlText.indexOf(endTag) + endTag.length
-  if (startIndex === -1 || endIndex === -1) {
-    console.log("No <tests> block found in AI output.")
-    return []
-  }
-  const xmlPortion = xmlText.slice(startIndex, endIndex)
-  const parsed = await parseStringPromise(xmlPortion)
-  const proposalsArr = parsed.tests?.testProposals?.[0]?.proposal
-  if (!Array.isArray(proposalsArr)) return []
+): TestProposal[] {
+  return rawProposals.map(proposal => {
+    const isReact = context.changedFiles.some(file => {
+      if (!file.content) return false
+      return (
+        file.filename.endsWith(".tsx") ||
+        file.content.includes("import React") ||
+        file.content.includes('from "react"') ||
+        file.filename.includes("app/")
+      )
+    })
 
-  const results: TestProposal[] = []
-  for (const item of proposalsArr) {
-    const filename = item.filename?.[0] || ""
-    let testContent = item.testContent?.[0] || ""
-    if (typeof testContent === "object" && "_" in testContent) {
-      testContent = testContent._
-    }
-    const testType = item.testType?.[0] === "e2e" ? "e2e" : "unit"
-
-    const actionNode = item.actions?.[0]
-    let action: "create" | "update" | "rename" = "create"
-    let oldFilename: string | undefined
-    if (actionNode?.action?.[0]) {
-      const raw = actionNode.action[0]
-      if (["create", "update", "rename"].includes(raw)) {
-        action = raw as any
-      }
-    }
-    if (actionNode?.oldFilename?.[0]) {
-      oldFilename = actionNode.oldFilename[0]
+    // Ensure extension matches React code
+    let newFilename = proposal.filename
+    if (isReact && !newFilename.endsWith(".test.tsx")) {
+      newFilename = newFilename.replace(/\.test\.ts$/, ".test.tsx")
+    } else if (!isReact && !newFilename.endsWith(".test.ts")) {
+      newFilename = newFilename.replace(/\.test\.tsx$/, ".test.ts")
     }
 
-    if (filename && testContent) {
-      // Tweak extension if needed
-      const finalName = finalizeFileExtension(filename, context)
-      results.push({
-        filename: finalName,
-        testType,
-        testContent,
-        actions: { action, oldFilename }
-      })
+    // Ensure in __tests__/unit by default
+    if (!newFilename.includes("__tests__/unit")) {
+      newFilename = `__tests__/unit/${newFilename}`
     }
-  }
-  return results
-}
 
-function finalizeFileExtension(
-  filename: string,
-  context: PullRequestContextWithTests
-) {
-  const isReact = context.changedFiles.some(file => {
-    if (!file.content) return false
-    return (
-      file.filename.endsWith(".tsx") ||
-      file.content.includes("import React") ||
-      file.content.includes('from "react"') ||
-      file.filename.includes("app/")
-    )
+    return {
+      ...proposal,
+      filename: newFilename
+    }
   })
-  // If it's React code, ensure .test.tsx
-  if (isReact && !filename.endsWith(".test.tsx")) {
-    return filename.replace(/\.test\.ts$/, ".test.tsx")
-  }
-  // If it's not React, ensure .test.ts
-  if (!isReact && !filename.endsWith(".test.ts")) {
-    return filename.replace(/\.test\.tsx$/, ".test.ts")
-  }
-  return filename
 }
 
+/***************************************************************
+ * COMMITTING TESTS
+ ***************************************************************/
 async function commitTests(
   octokit: Octokit,
   owner: string,
@@ -692,10 +674,9 @@ async function commitTests(
   for (const p of proposals) {
     if (
       p.actions?.action === "rename" &&
-      p.actions?.oldFilename &&
+      p.actions.oldFilename &&
       p.actions.oldFilename !== p.filename
     ) {
-      // attempt rename by removing old and adding new
       try {
         const { data: oldFile } = await octokit.repos.getContent({
           owner,
@@ -718,7 +699,6 @@ async function commitTests(
       }
     }
 
-    // create or update the new file
     const encoded = Buffer.from(p.testContent, "utf8").toString("base64")
     try {
       const { data: existingFile } = await octokit.repos.getContent({
@@ -727,7 +707,6 @@ async function commitTests(
         path: p.filename,
         ref: branch
       })
-      // if found, update
       if ("sha" in existingFile) {
         await octokit.repos.createOrUpdateFileContents({
           owner,
@@ -740,7 +719,6 @@ async function commitTests(
         })
       }
     } catch (error: any) {
-      // If 404, create
       if (error.status === 404) {
         await octokit.repos.createOrUpdateFileContents({
           owner,
@@ -757,37 +735,29 @@ async function commitTests(
   }
 }
 
-async function updateCommentWithResults(
-  octokit: Octokit,
-  context: PullRequestContext,
-  commentId: number,
-  proposals: TestProposal[]
-) {
-  const list = proposals.map(p => `- ${p.filename}`).join("\n")
-  const body = proposals.length
-    ? `✅ Proposed new/updated tests:\n${list}`
-    : `No new test proposals from AI.`
-  await updateComment(octokit, context, commentId, body)
-}
-
-//
-// TEST FIX
-//
-
-async function handleTestFix(
+/***************************************************************
+ * ITERATIVE TEST FIX
+ ***************************************************************/
+export async function handleTestFix(
   octokit: Octokit,
   context: PullRequestContextWithTests,
-  iteration: number
+  iteration: number,
+  testErrorOutput?: string
 ) {
   const placeholderId = await createComment(
     octokit,
     context,
     `🧪 AI Test Fix #${iteration} in progress...`
   )
-  const fixPrompt = `We have failing tests. Attempt #${iteration}. Please fix existing or create new ones.`
+  const fixPrompt = `
+We have failing tests (attempt #${iteration}).
+Here is the error output:
+${testErrorOutput ?? "No output"}
+Please fix or create new tests as needed, returning JSON in the same format.
+`
+
   const proposals = await generateTestsForChanges(context, fixPrompt)
   if (proposals.length) {
-    console.log("Fix proposals found, committing them...")
     await commitTests(
       octokit,
       context.owner,
@@ -797,32 +767,29 @@ async function handleTestFix(
     )
     await updateCommentWithResults(octokit, context, placeholderId, proposals)
   } else {
-    console.log("No fix proposals from AI.")
     await updateCommentWithResults(octokit, context, placeholderId, [])
   }
 }
 
-//
-// TEST RUN
-//
-
-function runLocalTests(): {
-  jestFailed: boolean
-} {
+/***************************************************************
+ * RUN LOCAL TESTS
+ ***************************************************************/
+function runLocalTests(): { jestFailed: boolean; output: string } {
   let jestFailed = false
+  let output = ""
   try {
-    execSync("npm run test", { stdio: "inherit" })
-  } catch (err) {
+    output = execSync("npm run test", { encoding: "utf8" })
+  } catch (err: any) {
     jestFailed = true
+    output = err.stdout || err.message || "Unknown error"
   }
   console.log(`Jest failed? ${jestFailed}`)
-  return { jestFailed }
+  return { jestFailed, output }
 }
 
-//
-// GITHUB COMMENT HELPERS
-//
-
+/***************************************************************
+ * GITHUB COMMENT HELPERS
+ ***************************************************************/
 async function createComment(
   octokit: Octokit,
   context: PullRequestContext,
@@ -866,16 +833,27 @@ async function postComment(
   })
 }
 
-//
-// RUN IT
-//
+async function updateCommentWithResults(
+  octokit: Octokit,
+  context: PullRequestContext,
+  commentId: number,
+  proposals: TestProposal[]
+) {
+  const list = proposals.map(p => `- ${p.filename}`).join("\n")
+  const body = proposals.length
+    ? `✅ Proposed new/updated tests:\n${list}`
+    : `No new test proposals from AI.`
+  await updateComment(octokit, context, commentId, body)
+}
 
+/***************************************************************
+ * Run the flow
+ ***************************************************************/
 runFlow()
   .then(() => {
     console.log("Done with AI flow script.")
   })
   .catch(err => {
     console.error("Error in ai-flow:", err)
-    // If we haven't exited yet, do so here with code 1
     process.exit(1)
   })
