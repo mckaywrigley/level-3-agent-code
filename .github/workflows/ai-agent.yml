@@ -40,6 +40,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: write
 
     steps:
       # --------------------------------------------
@@ -48,13 +49,15 @@ jobs:
       # --------------------------------------------
       - name: Post early "Agent starting" comment
         if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Creating an immediate placeholder comment..."
           curl -s \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Content-Type: application/json" \
             -X POST \
-            -d '{"body":"⚙️ AI Agent is starting up. We’ll be back soon with a code review and test generation!"}' \
+            -d '{"body":"⚙️ AI Agent is starting up. Be back soon with a code review and test generation!"}' \
             "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
 
       # ----------------------------------------------------------
