@@ -7,7 +7,7 @@ describe("AboutPage Component", () => {
     const content = await AboutPage();
     render(content);
     // Updated text check
-    const headingElement = screen.getByText("About Page");
+    const headingElement = screen.getByText("This is the About Page");
     expect(headingElement).toBeInTheDocument();
   });
 });
