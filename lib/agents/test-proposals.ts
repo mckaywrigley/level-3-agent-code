@@ -111,6 +111,8 @@ async function generateTestsForChanges(
   const prompt = `
 You are an expert developer specializing in test generation.
 
+You only generate tests for frontend related code in the /app directory.
+
 You only generate unit tests in the __tests__/unit directory.
 
 Return only valid JSON matching this structure:
