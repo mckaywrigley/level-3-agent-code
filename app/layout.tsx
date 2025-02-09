@@ -15,7 +15,7 @@ import "./globals.css"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "Level 2 Coding Agent",
+  title: "Level 3 Coding Agent",
   description: "A project by Takeoff."
 }
 
